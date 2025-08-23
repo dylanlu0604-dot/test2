@@ -1,7 +1,3 @@
-
-### 修正後的程式碼：
-
-```python
 import os
 import time
 import numpy as np
@@ -265,5 +261,34 @@ else:
         results_flat.extend(process_series(sid, std_values, winrolling_values, k, trigger_mode))
 
 if not results_flat:
-    st.info("尚無可顯示結果。請調整參數或確認 series 有足
-```
+    st.info("尚無可顯示結果。請調整參數或確認 series 有足夠歷史資料。")
+    st.stop()
+
+# 主表：統計結果
+summary_df = pd.DataFrame([{k: v for k, v in r.items() if 'resulttable' not in k and 'finalb' not in k} for r in results_flat])
+
+st.subheader("匯總結果（Summary）")
+st.dataframe(summary_df)
+
+# 繪製結果
+def plot_result(data, label, color):
+    fig, ax = plt.subplots(figsize=(7.5, 8))
+    x = np.linspace(-timepast, timeforward - 1, timepast + timeforward)
+    ax.plot(x, data, label=label, color=color)
+
+    xlim = (-15, 15)
+    ax.set_xlim(xlim)
+    ax.set_ylim(
+        bottom=data[(x >= xlim[0]) & (x <= xlim[1])].min() * 0.99,
+        top=data[(x >= xlim[0]) & (x <= xlim[1])].max() * 1.01
+    )
+
+    ax.axvline(x=0, color='grey', linestyle='--')
+    ax.set_xlabel('Months')
+    ax.set_ylabel('Index')
+    st.pyplot(fig)
+
+# 渲染圖表
+if results_flat:
+    plot_result(results_flat[0]['finalb1']['median'], 'Final b1', 'darkgreen')
+    plot_result(results_flat[0]['finalb2']['median'], 'Final b2', 'darkblue')
