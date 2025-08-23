@@ -38,12 +38,12 @@ with st.sidebar:
         type="password"
     )
 
-    # 偵測與視窗參數
+    # 單選的 std 和 rolling 視窗
     std_choices = [0.5, 1.0, 1.5, 2.0]
-    std_list = st.multiselect("std（可複選）", options=std_choices, default=[1.0])
+    std_value = st.selectbox("選擇 std 值", options=std_choices, index=1)
 
     roll_choices = [6, 12, 24, 36, 48]
-    winrolling_list = st.multiselect("rolling 視窗（月，可複選）", options=roll_choices, default=[12])
+    winrolling_value = st.selectbox("選擇 Rolling 視窗（月）", options=roll_choices, index=1)
 
     months_gap_threshold = st.number_input("事件間隔（至少幾個月）", min_value=1, max_value=36, value=6)
 
@@ -92,7 +92,7 @@ def _condition(df: pd.DataFrame, std: float, winrolling: int, mode: str) -> pd.S
         return df["breath"].rolling(6).min() < df["Rolling_mean"] - std * df["Rolling_std"]
 
 # 主分析（保留你的原流程，只把條件改為可切換）
-def process_series(series_id: int, std_values: list[float], winrolling_values: list[int], k: str, mode: str) -> list[dict]:
+def process_series(series_id: int, std_value: float, winrolling_value: int, k: str, mode: str) -> list[dict]:
     results: list[dict] = []
     try:
         x1, code1 = "breath", series_id
@@ -106,134 +106,72 @@ def process_series(series_id: int, std_values: list[float], winrolling_values: l
 
         alldf_original = pd.concat([df1, df2], axis=1).resample("MS").asfreq().ffill()
 
-        for std in std_values:
-            for winrolling in winrolling_values:
-                try:
-                    alldf = alldf_original.copy()
-                    timeforward, timepast = 31, 31  # 定義 timepast 和 timeforward
-                    months_threshold = months_gap_threshold
+        alldf = alldf_original.copy()
+        timeforward, timepast = 31, 31  # 定義 timepast 和 timeforward
+        months_threshold = months_gap_threshold
 
-                    # ===== 第一段分析：原始 breath =====
-                    df = alldf[[x1, x2]].copy()
-                    df["Rolling_mean"] = df["breath"].rolling(window=winrolling).mean()
-                    df["Rolling_std"] = df["breath"].rolling(window=winrolling).std()
-                    filtered_df = df[_condition(df, std, winrolling, mode)]
+        # ===== 第一段分析：原始 breath =====
+        df = alldf[[x1, x2]].copy()
+        df["Rolling_mean"] = df["breath"].rolling(window=winrolling_value).mean()
+        df["Rolling_std"] = df["breath"].rolling(window=winrolling_value).std()
+        filtered_df = df[_condition(df, std_value, winrolling_value, mode)]
 
-                    finalb_dates_1: list[pd.Timestamp] = []
-                    for date in filtered_df.index:
-                        if not finalb_dates_1 or ((date - finalb_dates_1[-1]).days / 30) >= months_threshold:
-                            finalb_dates_1.append(date)
+        finalb_dates_1: list[pd.Timestamp] = []
+        for date in filtered_df.index:
+            if not finalb_dates_1 or ((date - finalb_dates_1[-1]).days / 30) >= months_threshold:
+                finalb_dates_1.append(date)
 
-                    if not finalb_dates_1:
-                        resulttable1 = None
-                        finalb1 = None
-                        times1 = pre1 = prewin1 = after1 = afterwin1 = score1 = 0
-                        effective1 = "no"
-                    else:
-                        dfs = []
-                        for dt in finalb_dates_1:
-                            a = find_row_number_for_date(alldf, dt)
-                            if a - timepast < 0 or a + timeforward >= len(alldf):
-                                continue
-                            temp_df = alldf["index"].iloc[a - timepast : a + timeforward].to_frame(name=dt).reset_index()
-                            dfs.append(temp_df)
-                        if not dfs:
-                            resulttable1 = None
-                            finalb1 = None
-                            times1 = pre1 = prewin1 = after1 = afterwin1 = score1 = 0
-                            effective1 = "no"
-                        else:
-                            df_concat = pd.concat(dfs, axis=1)
-                            data_cols = [col for j, col in enumerate(df_concat.columns) if j % 2 == 1]
-                            origin = df_concat[data_cols]
-                            finalb1 = origin.apply(lambda col: 100 * col / col.iloc[timepast])
-                            finalb1 = finalb1[finalb1.columns[-10:]]  # 只保留最近 10 次事件
-                            finalb1["median"] = finalb1.mean(axis=1)
+        if not finalb_dates_1:
+            resulttable1 = None
+            finalb1 = None
+            times1 = pre1 = prewin1 = after1 = afterwin1 = score1 = 0
+            effective1 = "no"
+        else:
+            dfs = []
+            for dt in finalb_dates_1:
+                a = find_row_number_for_date(alldf, dt)
+                if a - timepast < 0 or a + timeforward >= len(alldf):
+                    continue
+                temp_df = alldf["index"].iloc[a - timepast : a + timeforward].to_frame(name=dt).reset_index()
+                dfs.append(temp_df)
+            if not dfs:
+                resulttable1 = None
+                finalb1 = None
+                times1 = pre1 = prewin1 = after1 = afterwin1 = score1 = 0
+                effective1 = "no"
+            else:
+                df_concat = pd.concat(dfs, axis=1)
+                data_cols = [col for j, col in enumerate(df_concat.columns) if j % 2 == 1]
+                origin = df_concat[data_cols]
+                finalb1 = origin.apply(lambda col: 100 * col / col.iloc[timepast])
+                finalb1 = finalb1[finalb1.columns[-10:]]  # 只保留最近 10 次事件
+                finalb1["median"] = finalb1.mean(axis=1)
 
-                            offsets = [-12, -6, 0, 6, 12]
-                            table1 = pd.concat([finalb1.iloc[timepast + off] for off in offsets], axis=1)
-                            table1.columns = [f"{off}d" for off in offsets]  # 仍沿用 d 命名
-                            resulttable1 = table1.iloc[:-1]
-                            perc_df = pd.DataFrame([(resulttable1 > 100).mean() * 100], index=["勝率"])
-                            resulttable1 = pd.concat([resulttable1, perc_df, table1.iloc[-1:]])
+                offsets = [-12, -6, 0, 6, 12]
+                table1 = pd.concat([finalb1.iloc[timepast + off] for off in offsets], axis=1)
+                table1.columns = [f"{off}d" for off in offsets]  # 仍沿用 d 命名
+                resulttable1 = table1.iloc[:-1]
+                perc_df = pd.DataFrame([(resulttable1 > 100).mean() * 100], index=["勝率"])
+                resulttable1 = pd.concat([resulttable1, perc_df, table1.iloc[-1:]])
 
-                            times1 = len(resulttable1) - 2
-                            pre1 = resulttable1.loc["median", "-12d"] - 100
-                            prewin1 = resulttable1.loc["勝率", "-12d"]
-                            after1 = resulttable1.loc["median", "12d"] - 100
-                            afterwin1 = resulttable1.loc["勝率", "12d"]
-                            score1 = after1 - pre1
-                            effective1 = "yes" if (pre1 - 1) * (after1 - 1) > 0 and times1 > 10 else "no"
+                times1 = len(resulttable1) - 2
+                pre1 = resulttable1.loc["median", "-12d"] - 100
+                prewin1 = resulttable1.loc["勝率", "-12d"]
+                after1 = resulttable1.loc["median", "12d"] - 100
+                afterwin1 = resulttable1.loc["勝率", "12d"]
+                score1 = after1 - pre1
+                effective1 = "yes" if (pre1 - 1) * (after1 - 1) > 0 and times1 > 10 else "no"
 
-                    # ===== 第二段分析：breath / breath.shift(12) =====
-                    df = alldf[[x1, x2]].copy()
-                    df["breath"] = df["breath"] / df["breath"].shift(12)
-                    df.dropna(inplace=True)
-                    df["Rolling_mean"] = df["breath"].rolling(window=winrolling).mean()
-                    df["Rolling_std"] = df["breath"].rolling(window=winrolling).std()
-                    filtered_df = df[_condition(df, std, winrolling, mode)]
+        results.append({
+            "series_id": series_id, "std": std_value, "winrolling": winrolling_value,
+            "pre1": pre1, "prewin1": prewin1, "after1": after1, "afterwin1": afterwin1,
+            "times1": times1, "effective1": effective1,
+            "resulttable1": resulttable1 if resulttable1 is not None else None,
+            "finalb1": finalb1.reset_index() if finalb1 is not None else None,
+        })
 
-                    finalb_dates_2: list[pd.Timestamp] = []
-                    for date in filtered_df.index:
-                        if not finalb_dates_2 or ((date - finalb_dates_2[-1]).days / 30) >= months_threshold:
-                            finalb_dates_2.append(date)
-
-                    if not finalb_dates_2:
-                        resulttable2 = None
-                        finalb2 = None
-                        times2 = pre2 = prewin2 = after2 = afterwin2 = score2 = 0
-                        effective2 = "no"
-                    else:
-                        dfs = []
-                        for dt in finalb_dates_2:
-                            a = find_row_number_for_date(alldf, dt)
-                            if a - timepast < 0 or a + timeforward >= len(alldf):
-                                continue
-                            temp_df = alldf["index"].iloc[a - timepast : a + timeforward].to_frame(name=dt).reset_index()
-                            dfs.append(temp_df)
-                        if not dfs:
-                            resulttable2 = None
-                            finalb2 = None
-                            times2 = pre2 = prewin2 = after2 = afterwin2 = score2 = 0
-                            effective2 = "no"
-                        else:
-                            df_concat = pd.concat(dfs, axis=1)
-                            data_cols = [col for j, col in enumerate(df_concat.columns) if j % 2 == 1]
-                            origin = df_concat[data_cols]
-                            finalb2 = origin.apply(lambda col: 100 * col / col.iloc[timepast])
-                            finalb2["median"] = finalb2.mean(axis=1)
-
-                            offsets = [-12, -6, 0, 6, 12]
-                            table2 = pd.concat([finalb2.iloc[timepast + off] for off in offsets], axis=1)
-                            table2.columns = [f"{off}d" for off in offsets]
-                            resulttable2 = table2.iloc[:-1]
-                            perc_df = pd.DataFrame([(resulttable2 > 100).mean() * 100], index=["勝率"])
-                            resulttable2 = pd.concat([resulttable2, perc_df, table2.iloc[-1:]])
-
-                            times2 = len(resulttable2) - 2
-                            pre2 = resulttable2.loc["median", "-12d"] - 100
-                            prewin2 = resulttable2.loc["勝率", "-12d"]
-                            after2 = resulttable2.loc["median", "12d"] - 100
-                            afterwin2 = resulttable2.loc["勝率", "12d"]
-                            score2 = after2 - pre2
-                            effective2 = "yes" if (pre2 - 1) * (after2 - 1) > 0 and times2 > 10 else "no"
-
-                    results.append({
-                        "series_id": series_id, "std": std, "winrolling": winrolling,
-                        "pre1": pre1, "prewin1": prewin1, "after1": after1, "afterwin1": afterwin1,
-                        "times1": times1, "effective1": effective1,
-                        "pre2": pre2, "prewin2": prewin2, "after2": after2, "afterwin2": afterwin2,
-                        "times2": times2, "effective2": effective2,
-                        "resulttable1": resulttable1 if resulttable1 is not None else None,
-                        "finalb1": finalb1.reset_index() if finalb1 is not None else None,
-                        "resulttable2": resulttable2 if resulttable2 is not None else None,
-                        "finalb2": finalb2.reset_index() if finalb2 is not None else None,
-                    })
-
-                except Exception as e:
-                    st.write(f"Error during CALCULATION for series {series_id}: {e}")
     except Exception as e:
-        st.write(f"FATAL error in data for series {series_id}: {e}")
+        st.write(f"Error during CALCULATION for series {series_id}: {e}")
     return results
 
 # ---------------------- Main Flow ----------------------
@@ -244,42 +182,32 @@ except Exception:
     st.error("Series IDs 格式錯誤。請以逗號分隔整數 ID。")
     st.stop()
 
-std_values = std_list
-winrolling_values = winrolling_list
+std_value = std_value
+winrolling_value = winrolling_value
 k = _need_api_key()
 
 # 平行執行（或退回單執行緒）
 if Parallel is not None:
     num_cores = max(1, min(4, multiprocessing.cpu_count()))
     results_nested = Parallel(n_jobs=num_cores)(
-        delayed(process_series)(sid, std_values, winrolling_values, k, trigger_mode) for sid in series_ids
+        delayed(process_series)(sid, std_value, winrolling_value, k, trigger_mode) for sid in series_ids
     )
     results_flat = [item for sublist in results_nested for item in sublist]
 else:
     st.warning("`joblib` 未安裝，改用單執行緒。")
     results_flat = []
     for sid in series_ids:
-        results_flat.extend(process_series(sid, std_values, winrolling_values, k, trigger_mode))
+        results_flat.extend(process_series(sid, std_value, winrolling_value, k, trigger_mode))
 
 if not results_flat:
     st.info("尚無可顯示結果。請調整參數或確認 series 有足夠歷史資料。")
     st.stop()
 
-# 主表：統計結果
-summary_df = pd.DataFrame([{k: v for k, v in r.items() if 'resulttable' not in k and 'finalb' not in k} for r in results_flat])
-
-st.subheader("匯總結果（Summary）")
-st.dataframe(summary_df)
-
-# 顯示 resulttable1 和 resulttable2
+# 顯示 resulttable1
 for result in results_flat:
     if result.get('resulttable1') is not None:
         st.write("=== resulttable1 ===")
         st.dataframe(result['resulttable1'])
-    
-    if result.get('resulttable2') is not None:
-        st.write("=== resulttable2 ===")
-        st.dataframe(result['resulttable2'])
 
 # 繪製結果
 def plot_result(data, label, color, timepast, timeforward):
@@ -303,5 +231,3 @@ def plot_result(data, label, color, timepast, timeforward):
 
 # 繪製圖表
 plot_result(results_flat[0]['finalb1']['median'], 'Final b1', 'darkgreen', timepast=31, timeforward=31)
-plot_result(results_flat[0]['finalb2']['median'], 'Final b2', 'darkblue', timepast=31, timeforward=31)
-
