@@ -18,20 +18,21 @@ st.set_page_config(page_title="Rolling Mean Demo", layout="wide")
 
 # -------------------------- UI --------------------------
 st.title("互動式 Rolling Mean 視覺化")
-st.write("可用隨機資料或 MacroMicro API 進行 rolling mean 計算，並可套用線性變換 `value = value * a + b`。")
+st.write("可用隨機資料或 MacroMicro API 進行 rolling mean 計算。")
 
 with st.sidebar:
     st.header("資料來源與參數設定")
 
     source = st.radio("資料來源", ["Random demo", "MacroMicro API"], horizontal=True)
 
-    # 事件偵測與視窗參數
+    # 偵測與視窗參數
     std_choices = [0.5, 1.0, 1.5, 2.0]
     std_list = st.multiselect("std（可複選）", options=std_choices, default=[1.0])
 
     roll_choices = [6, 12, 24, 36, 48]
     winrolling_list = st.multiselect("rolling 視窗（月，可複選）", options=roll_choices, default=[12])
 
+    months_gap_threshold = st.number_input("事件間隔（至少幾個月）", min_value=1, max_value=24, value=6)
 
     # Random demo 參數
     if source == "Random demo":
@@ -50,9 +51,6 @@ with st.sidebar:
         st.caption("若已在 .streamlit/secrets.toml 設定 `MACROMICRO_API_KEY`，此欄可留空。")
 
 # ---------------------- Helpers ------------------------
-
-months_gap_threshold = 30
-
 OFFSETS = [-12, -6, 0, 6, 12]  # 以「月」為單位
 
 @st.cache_data(show_spinner=False, ttl=3600)
@@ -73,14 +71,12 @@ def mm(series_id: int, frequency: str, name: str, api_key: str) -> pd.DataFrame 
             df.columns = [name]
             return df
         except Exception as e:
-            # Log to the app for transparency; back-off slightly
             st.write(f"Error fetching series_id {series_id} (attempt {attempt+1}/5): {e}")
             time.sleep(1)
     return None
 
 
 def nearest_index_pos(idx: pd.DatetimeIndex, ts: pd.Timestamp) -> int:
-    """Return the nearest index position for ts."""
     try:
         return idx.get_loc(ts)
     except KeyError:
@@ -92,7 +88,7 @@ def month_diff(a: pd.Timestamp, b: pd.Timestamp) -> int:
 
 
 def process_series(series_id: int, assetid: int, std_list: list[float], winrolling_list: list[int],
-                   api_key: str, a: float, b: float, months_gap_threshold: int) -> list[dict]:
+                   api_key: str, months_gap_threshold: int) -> list[dict]:
     results: list[dict] = []
 
     # 取得資料
@@ -109,10 +105,7 @@ def process_series(series_id: int, assetid: int, std_list: list[float], winrolli
     alldf_original = pd.concat([df1, df2], axis=1)
     alldf_original = alldf_original.resample("MS").asfreq().ffill()
 
-    # 線性變換（套用在 index）
-    alldf_original["index"] = alldf_original["index"] * a + b
-
-    timepast = 12   # 取樣基準點前 12 個月
+    timepast = 12     # 取樣基準點前 12 個月
     timeforward = 12  # 取樣基準點後 12 個月
 
     for std in std_list:
@@ -125,7 +118,6 @@ def process_series(series_id: int, assetid: int, std_list: list[float], winrolli
                 df["Rolling_mean"] = df["breath"].rolling(window=winrolling, min_periods=winrolling).mean()
                 df["Rolling_std"] = df["breath"].rolling(window=winrolling, min_periods=winrolling).std()
 
-                # 條件：過去 6 個月內最高值 > 平均 + std * 標準差
                 cond = (
                     df["breath"].rolling(6, min_periods=6).max()
                     > df["Rolling_mean"] + std * df["Rolling_std"]
@@ -271,16 +263,11 @@ def process_series(series_id: int, assetid: int, std_list: list[float], winrolli
 
 # ---------------------- Main Flow ----------------------
 if source == "Random demo":
-    # 以隨機資料示範 rolling 與線性變換
     rng = np.random.default_rng(int(seed))
     vals = rng.integers(10, 1000, size=int(n_points)).astype(float)
     idx = pd.date_range(end=pd.Timestamp.today().normalize(), periods=int(n_points), freq="MS")
     df_demo = pd.DataFrame({"value": vals}, index=idx)
 
-    # 線性變換
-    df_demo["value_transformed"] = df_demo["value"] * a + b
-
-    # 顯示與圖表
     st.subheader("Random Demo 資料預覽")
     st.dataframe(df_demo.tail())
 
@@ -288,10 +275,9 @@ if source == "Random demo":
         if win <= 1:
             continue
         st.write(f"Rolling mean（{win} 個月）")
-        st.line_chart(df_demo[["value_transformed"]].rolling(win).mean())
+        st.line_chart(df_demo[["value"]].rolling(win).mean())
 
 else:  # MacroMicro API
-    # API Key 來源：優先 st.secrets，其次 UI/text_input，其次環境變數
     effective_api_key = st.secrets.get("MACROMICRO_API_KEY", "") if hasattr(st, "secrets") else ""
     if not effective_api_key:
         effective_api_key = api_key or os.environ.get("MACROMICRO_API_KEY", "")
@@ -310,7 +296,7 @@ else:  # MacroMicro API
     if Parallel is not None:
         num_cores = max(1, min(4, multiprocessing.cpu_count()))
         results_nested = Parallel(n_jobs=num_cores)(
-            delayed(process_series)(sid, assetid, std_list, winrolling_list, effective_api_key, a, b, months_gap_threshold)
+            delayed(process_series)(sid, assetid, std_list, winrolling_list, effective_api_key, months_gap_threshold)
             for sid in series_ids
         )
         results_flat = [item for sublist in results_nested for item in sublist]
@@ -319,14 +305,13 @@ else:  # MacroMicro API
         results_flat = []
         for sid in series_ids:
             results_flat.extend(
-                process_series(sid, assetid, std_list, winrolling_list, effective_api_key, a, b, months_gap_threshold)
+                process_series(sid, assetid, std_list, winrolling_list, effective_api_key, months_gap_threshold)
             )
 
     if not results_flat:
         st.info("尚無可顯示結果。請調整參數或確認 series 有足夠歷史資料。")
         st.stop()
 
-    # 主表：統計結果
     summary_df = pd.DataFrame([
         {k: v for k, v in r.items() if 'resulttable' not in k and 'finalb' not in k}
         for r in results_flat
