@@ -291,3 +291,57 @@ if finalb2_list:
     st.dataframe(finalb2_list[0].head())
 
 st.caption(f"Last run at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+
+
+# 假設這是你處理後的結果
+timeforward, timepast = 31, 31
+
+# Plot median index performance (對於 finalb1)
+x = np.linspace(-timepast, timeforward - 1, timepast + timeforward)
+y3 = results_flat[0]['finalb1']['median']  # 注意：這是來自結果的 data，依你的實際資料結構來調整
+
+# 繪製圖表
+fig, ax = plt.subplots(figsize=(7.5, 8))
+ax.plot(x, y3, label='Index Performance', color='darkgreen')
+
+# 設定顯示範圍
+xlim = (-15, 15)
+ax.set_xlim(xlim)
+ax.set_ylim(
+    bottom=y3[(x >= xlim[0]) & (x <= xlim[1])].min() * 0.99,
+    top=y3[(x >= xlim[0]) & (x <= xlim[1])].max() * 1.01
+)
+
+# 設定樣式
+ax.axvline(x=0, color='grey', linestyle='--')
+ax.set_xlabel('Months')
+ax.set_ylabel('Index')
+# ax.set_title('Average Index Performance Before and After Reaching Extreme Levels')
+
+# 顯示圖表在 Streamlit 上
+st.pyplot(fig)
+
+
+# Plot median index performance (對於 finalb2)
+y4 = results_flat[0]['finalb2']['median']  # 同樣，這是對應資料
+
+# 繪製第二張圖
+fig, ax = plt.subplots(figsize=(7.5, 8))
+ax.plot(x, y4, label='Index Performance', color='darkblue')
+
+# 設定顯示範圍
+ax.set_xlim(xlim)
+ax.set_ylim(
+    bottom=y4[(x >= xlim[0]) & (x <= xlim[1])].min() * 0.99,
+    top=y4[(x >= xlim[0]) & (x <= xlim[1])].max() * 1.01
+)
+
+# 設定樣式
+ax.axvline(x=0, color='grey', linestyle='--')
+ax.set_xlabel('Months')
+ax.set_ylabel('Index')
+# ax.set_title('Average Index Performance Before and After Reaching Extreme Levels')
+
+# 顯示圖表在 Streamlit 上
+st.pyplot(fig)
