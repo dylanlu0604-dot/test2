@@ -271,7 +271,7 @@ st.subheader("匯總結果（Summary）")
 st.dataframe(summary_df)
 
 # 繪製結果
-def plot_result(data, label, color):
+def plot_result(data, label, color, timepast, timeforward):
     fig, ax = plt.subplots(figsize=(7.5, 8))
     x = np.linspace(-timepast, timeforward - 1, timepast + timeforward)
     ax.plot(x, data, label=label, color=color)
@@ -286,9 +286,4 @@ def plot_result(data, label, color):
     ax.axvline(x=0, color='grey', linestyle='--')
     ax.set_xlabel('Months')
     ax.set_ylabel('Index')
-    st.pyplot(fig)
-
-# 渲染圖表
-if results_flat:
-    plot_result(results_flat[0]['finalb1']['median'], 'Final b1', 'darkgreen')
-    plot_result(results_flat[0]['finalb2']['median'], 'Final b2', 'darkblue')
+    st.pyplot
