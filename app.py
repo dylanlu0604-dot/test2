@@ -264,19 +264,20 @@ if not results_flat:
 # 主表：統計結果
 summary_df = pd.DataFrame([{k: v for k, v in r.items() if 'resulttable' not in k and 'finalb' not in k} for r in results_flat])
 
+
 sdfcol = summary_df.columns
 
 # a: 選擇前8列
-a = sdfcol[0:8]
+a = sdfcol[0:9]
 
 # b: 拼接第0到第2列和第9到第14列
-b = sdfcol[0:2].tolist() + sdfcol[9:14].tolist()
+b = sdfcol[0:3].tolist() + sdfcol[9:15].tolist()
 
 # 合併選定的列
-summary_df = pd.concat([summary_df[a], summary_df[b]], axis=1)
-
 st.subheader("匯總結果（Summary）")
-st.dataframe(summary_df)
+st.dataframe(summary_df[a])
+st.dataframe(summary_df[b])
+
 
 # ===== 第一段分析：原始 breath =====
 st.subheader("原始值版本")
