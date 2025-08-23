@@ -271,6 +271,16 @@ summary_df = pd.DataFrame([{k: v for k, v in r.items() if 'resulttable' not in k
 st.subheader("匯總結果（Summary）")
 st.dataframe(summary_df)
 
+# 顯示 resulttable1 和 resulttable2
+for result in results_flat:
+    if result.get('resulttable1') is not None:
+        st.write("=== resulttable1 ===")
+        st.dataframe(result['resulttable1'])
+    
+    if result.get('resulttable2') is not None:
+        st.write("=== resulttable2 ===")
+        st.dataframe(result['resulttable2'])
+
 # 繪製結果
 def plot_result(data, label, color, timepast, timeforward):
     fig, ax = plt.subplots(figsize=(7.5, 8))
@@ -294,3 +304,4 @@ def plot_result(data, label, color, timepast, timeforward):
 # 繪製圖表
 plot_result(results_flat[0]['finalb1']['median'], 'Final b1', 'darkgreen', timepast=31, timeforward=31)
 plot_result(results_flat[0]['finalb2']['median'], 'Final b2', 'darkblue', timepast=31, timeforward=31)
+
