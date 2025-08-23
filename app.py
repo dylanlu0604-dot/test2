@@ -287,3 +287,9 @@ def plot_result(data, label, color, timepast, timeforward):
     ax.set_xlabel('Months')
     ax.set_ylabel('Index')
     st.pyplot
+
+
+# 渲染圖表
+if results_flat:
+    plot_result(results_flat[0]['finalb1']['median'], 'Final b1', 'darkgreen', timepast=31, timeforward=31)
+    plot_result(results_flat[0]['finalb2']['median'], 'Final b2', 'darkblue', timepast=31, timeforward=31)
