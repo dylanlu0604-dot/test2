@@ -38,7 +38,7 @@ with st.sidebar:
         type="password"
     )
 
-    # 單選的 std 和 rolling 視窗
+    # 單選的 std 和 rolling 視窗（這些值在兩段分析中共用）
     std_choices = [0.5, 1.0, 1.5, 2.0]
     std_value = st.selectbox("選擇 std 值", options=std_choices, index=1)
 
@@ -149,7 +149,7 @@ def process_series(series_id: int, std_value: float, winrolling_value: int, k: s
 
                 offsets = [-12, -6, 0, 6, 12]
                 table1 = pd.concat([finalb1.iloc[timepast + off] for off in offsets], axis=1)
-                table1.columns = [f"{off}d" for off in offsets]  # 仍沿用 d 命名
+                table1.columns = [f"{off}M" for off in offsets]  # 仍沿用 d 命名
                 resulttable1 = table1.iloc[:-1]
                 perc_df = pd.DataFrame([(resulttable1 > 100).mean() * 100], index=["勝率"])
                 resulttable1 = pd.concat([resulttable1, perc_df, table1.iloc[-1:]])
@@ -162,12 +162,69 @@ def process_series(series_id: int, std_value: float, winrolling_value: int, k: s
                 score1 = after1 - pre1
                 effective1 = "yes" if (pre1 - 1) * (after1 - 1) > 0 and times1 > 10 else "no"
 
+        # ===== 第二段分析：breath / breath.shift(12) =====
+        df = alldf[[x1, x2]].copy()
+        df["breath"] = df["breath"] / df["breath"].shift(12)
+        df.dropna(inplace=True)
+        df["Rolling_mean"] = df["breath"].rolling(window=winrolling_value).mean()
+        df["Rolling_std"] = df["breath"].rolling(window=winrolling_value).std()
+        filtered_df = df[_condition(df, std_value, winrolling_value, mode)]
+
+        finalb_dates_2: list[pd.Timestamp] = []
+        for date in filtered_df.index:
+            if not finalb_dates_2 or ((date - finalb_dates_2[-1]).days / 30) >= months_threshold:
+                finalb_dates_2.append(date)
+
+        if not finalb_dates_2:
+            resulttable2 = None
+            finalb2 = None
+            times2 = pre2 = prewin2 = after2 = afterwin2 = score2 = 0
+            effective2 = "no"
+        else:
+            dfs = []
+            for dt in finalb_dates_2:
+                a = find_row_number_for_date(alldf, dt)
+                if a - timepast < 0 or a + timeforward >= len(alldf):
+                    continue
+                temp_df = alldf["index"].iloc[a - timepast : a + timeforward].to_frame(name=dt).reset_index()
+                dfs.append(temp_df)
+            if not dfs:
+                resulttable2 = None
+                finalb2 = None
+                times2 = pre2 = prewin2 = after2 = afterwin2 = score2 = 0
+                effective2 = "no"
+            else:
+                df_concat = pd.concat(dfs, axis=1)
+                data_cols = [col for j, col in enumerate(df_concat.columns) if j % 2 == 1]
+                origin = df_concat[data_cols]
+                finalb2 = origin.apply(lambda col: 100 * col / col.iloc[timepast])
+                finalb2["median"] = finalb2.mean(axis=1)
+
+                offsets = [-12, -6, 0, 6, 12]
+                table2 = pd.concat([finalb2.iloc[timepast + off] for off in offsets], axis=1)
+                table2.columns = [f"{off}M" for off in offsets]
+                resulttable2 = table2.iloc[:-1]
+                perc_df = pd.DataFrame([(resulttable2 > 100).mean() * 100], index=["勝率"])
+                resulttable2 = pd.concat([resulttable2, perc_df, table2.iloc[-1:]])
+
+                times2 = len(resulttable2) - 2
+                pre2 = resulttable2.loc["median", "-12d"] - 100
+                prewin2 = resulttable2.loc["勝率", "-12d"]
+                after2 = resulttable2.loc["median", "12d"] - 100
+                afterwin2 = resulttable2.loc["勝率", "12d"]
+                score2 = after2 - pre2
+                effective2 = "yes" if (pre2 - 1) * (after2 - 1) > 0 and times2 > 10 else "no"
+
         results.append({
             "series_id": series_id, "std": std_value, "winrolling": winrolling_value,
             "pre1": pre1, "prewin1": prewin1, "after1": after1, "afterwin1": afterwin1,
             "times1": times1, "effective1": effective1,
+            "pre2": pre2, "prewin2": prewin2, "after2": after2, "afterwin2": afterwin2,
+            "times2": times2, "effective2": effective2,
             "resulttable1": resulttable1 if resulttable1 is not None else None,
             "finalb1": finalb1.reset_index() if finalb1 is not None else None,
+            "resulttable2": resulttable2 if resulttable2 is not None else None,
+            "finalb2": finalb2.reset_index() if finalb2 is not None else None,
         })
 
     except Exception as e:
@@ -203,11 +260,15 @@ if not results_flat:
     st.info("尚無可顯示結果。請調整參數或確認 series 有足夠歷史資料。")
     st.stop()
 
-# 顯示 resulttable1
+# 顯示 resulttable1 和 resulttable2
 for result in results_flat:
     if result.get('resulttable1') is not None:
         st.write("=== resulttable1 ===")
         st.dataframe(result['resulttable1'])
+        
+    if result.get('resulttable2') is not None:
+        st.write("=== resulttable2 ===")
+        st.dataframe(result['resulttable2'])
 
 # 繪製結果
 def plot_result(data, label, color, timepast, timeforward):
@@ -231,3 +292,4 @@ def plot_result(data, label, color, timepast, timeforward):
 
 # 繪製圖表
 plot_result(results_flat[0]['finalb1']['median'], 'Final b1', 'darkgreen', timepast=31, timeforward=31)
+plot_result(results_flat[0]['finalb2']['median'], 'Final b2', 'darkblue', timepast=31, timeforward=31)
