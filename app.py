@@ -222,8 +222,8 @@ def process_series(series_id: int, std_value: float, winrolling_value: int, k: s
             "pre2": pre2, "prewin2": prewin2, "after2": after2, "afterwin2": afterwin2,
             "times2": times2, "effective2": effective2,
             "resulttable1": resulttable1 if resulttable1 is not None else None,
-            "finalb1": finalb1.reset_index() if finalb1 is not None else None,
             "resulttable2": resulttable2 if resulttable2 is not None else None,
+            "finalb1": finalb1.reset_index() if finalb1 is not None else None,
             "finalb2": finalb2.reset_index() if finalb2 is not None else None,
         })
 
@@ -231,8 +231,9 @@ def process_series(series_id: int, std_value: float, winrolling_value: int, k: s
         st.write(f"Error during CALCULATION for series {series_id}: {e}")
     return results
 
+
 # ---------------------- Main Flow ----------------------
-# 解析參數
+
 try:
     series_ids = [int(s.strip()) for s in series_ids_text.split(",") if s.strip()]
 except Exception:
@@ -241,55 +242,67 @@ except Exception:
 
 std_value = std_value
 winrolling_value = winrolling_value
+mode = trigger_mode
 k = _need_api_key()
 
 # 平行執行（或退回單執行緒）
 if Parallel is not None:
     num_cores = max(1, min(4, multiprocessing.cpu_count()))
     results_nested = Parallel(n_jobs=num_cores)(
-        delayed(process_series)(sid, std_value, winrolling_value, k, trigger_mode) for sid in series_ids
+        delayed(process_series)(sid, std_value, winrolling_value, k, mode) for sid in series_ids
     )
     results_flat = [item for sublist in results_nested for item in sublist]
 else:
     st.warning("`joblib` 未安裝，改用單執行緒。")
     results_flat = []
     for sid in series_ids:
-        results_flat.extend(process_series(sid, std_value, winrolling_value, k, trigger_mode))
+        results_flat.extend(process_series(sid, std_value, winrolling_value, k, mode))
 
 if not results_flat:
     st.info("尚無可顯示結果。請調整參數或確認 series 有足夠歷史資料。")
     st.stop()
 
-# 顯示 resulttable1 和 resulttable2
-for result in results_flat:
-    if result.get('resulttable1') is not None:
-        st.write("=== resulttable1 ===")
-        st.dataframe(result['resulttable1'])
-        
-    if result.get('resulttable2') is not None:
-        st.write("=== resulttable2 ===")
-        st.dataframe(result['resulttable2'])
+# 主表：統計結果
+summary_df = pd.DataFrame([{k: v for k, v in r.items() if 'resulttable' not in k and 'finalb' not in k} for r in results_flat])
 
-# 繪製結果
-def plot_result(data, label, color, timepast, timeforward):
-    fig, ax = plt.subplots(figsize=(7.5, 8))
-    x = np.linspace(-timepast, timeforward - 1, timepast + timeforward)
-    ax.plot(x, data, label=label, color=color)
+st.subheader("匯總結果（Summary）")
+st.dataframe(summary_df)
 
-    xlim = (-15, 15)
-    ax.set_xlim(xlim)
-    ax.set_ylim(
-        bottom=data[(x >= xlim[0]) & (x <= xlim[1])].min() * 0.99,
-        top=data[(x >= xlim[0]) & (x <= xlim[1])].max() * 1.01
-    )
+# ===== 第一段分析：原始 breath =====
+st.write("===== 第一段分析：原始 breath =====")
+resulttable1_list = [r['resulttable1'] for r in results_flat if r.get('resulttable1') is not None]
+if resulttable1_list:
+    st.write(resulttable1_list[0])
 
-    ax.axvline(x=0, color='grey', linestyle='--')
-    ax.set_xlabel('Months')
-    ax.set_ylabel('Index')
-    
-    # 顯示圖表
-    st.pyplot(fig)
+# 繪圖
+if results_flat[0].get('finalb1') is not None:
+    st.write("Plotting finalb1 median")
+    plt.figure(figsize=(7.5, 8))
+    x = np.linspace(-31, 31, 31 + 31)
+    y = results_flat[0]['finalb1']['median']
+    plt.plot(x, y, label='Final b1', color='darkgreen')
+    plt.axvline(x=0, color='grey', linestyle='--')
+    plt.xlim(-31, 31)
+    plt.ylim(bottom=min(y)*0.99, top=max(y)*1.01)
+    plt.xlabel('Months')
+    plt.ylabel('Index')
+    st.pyplot(plt)
 
-# 繪製圖表
-plot_result(results_flat[0]['finalb1']['median'], 'Final b1', 'darkgreen', timepast=31, timeforward=31)
-plot_result(results_flat[0]['finalb2']['median'], 'Final b2', 'darkblue', timepast=31, timeforward=31)
+# ===== 第二段分析：breath / breath.shift(12) =====
+st.write("===== 第二段分析：breath / breath.shift(12) =====")
+resulttable2_list = [r['resulttable2'] for r in results_flat if r.get('resulttable2') is not None]
+if resulttable2_list:
+    st.write(resulttable2_list[0])
+
+# 繪圖
+if results_flat[0].get('finalb2') is not None:
+    st.write("Plotting finalb2 median")
+    plt.figure(figsize=(7.5, 8))
+    y = results_flat[0]['finalb2']['median']
+    plt.plot(x, y, label='Final b2', color='darkblue')
+    plt.axvline(x=0, color='grey', linestyle='--')
+    plt.xlim(-31, 31)
+    plt.ylim(bottom=min(y)*0.99, top=max(y)*1.01)
+    plt.xlabel('Months')
+    plt.ylabel('Index')
+    st.pyplot(plt)
