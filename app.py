@@ -4,11 +4,12 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import requests
+import multiprocessing
+from typing import List
 
 # --- Optional parallelism (graceful fallback if joblib is not installed) ---
 try:
     from joblib import Parallel, delayed  # type: ignore
-    import multiprocessing
 except Exception:
     Parallel = None
     def delayed(f):
@@ -27,12 +28,12 @@ with st.sidebar:
 
     # 偵測與視窗參數
     std_choices = [0.5, 1.0, 1.5, 2.0]
-    std_list = st.multiselect("std（可複選）", options=std_choices, default=[1.0])
+    std_list: List[float] = st.multiselect("std（可複選）", options=std_choices, default=[1.0])
 
     roll_choices = [6, 12, 24, 36, 48]
-    winrolling_list = st.multiselect("rolling 視窗（月，可複選）", options=roll_choices, default=[12])
+    winrolling_list: List[int] = st.multiselect("rolling 視窗（月，可複選）", options=roll_choices, default=[12])
 
-    months_gap_threshold = st.number_input("事件間隔（至少幾個月）", min_value=1, max_value=24, value=6)
+    months_gap_threshold: int = st.number_input("事件間隔（至少幾個月）", min_value=1, max_value=24, value=6)
 
     # Random demo 參數
     if source == "Random demo":
@@ -45,13 +46,13 @@ with st.sidebar:
         assetid = st.number_input("index series ID (assetid)", min_value=0, value=0, step=1)
         api_key = st.text_input(
             "MacroMicro API Key（留空則使用 st.secrets）",
-            value=os.environ.get("MACROMICRO_API_KEY", ""),
+            value=st.secrets.get("MACROMICRO_API_KEY", os.environ.get("MACROMICRO_API_KEY", "")),
             type="password"
         )
         st.caption("若已在 .streamlit/secrets.toml 設定 `MACROMICRO_API_KEY`，此欄可留空。")
 
 # ---------------------- Helpers ------------------------
-OFFSETS = [-12, -6, 0, 6, 12]  # 以「月」為單位
+OFFSETS = [-12, -6, 0, 6, 12]  # 以「月」為單位（Row offset on monthly data）
 
 @st.cache_data(show_spinner=False, ttl=3600)
 def mm(series_id: int, frequency: str, name: str, api_key: str) -> pd.DataFrame | None:
@@ -75,38 +76,32 @@ def mm(series_id: int, frequency: str, name: str, api_key: str) -> pd.DataFrame 
             time.sleep(1)
     return None
 
-
 def nearest_index_pos(idx: pd.DatetimeIndex, ts: pd.Timestamp) -> int:
     try:
         return idx.get_loc(ts)
     except KeyError:
         return idx.get_indexer([ts], method="nearest")[0]
 
-
 def month_diff(a: pd.Timestamp, b: pd.Timestamp) -> int:
     return (a.year - b.year) * 12 + (a.month - b.month)
 
-
-def process_series(series_id: int, assetid: int, std_list: list[float], winrolling_list: list[int],
+def process_series(series_id: int, assetid: int, std_list: List[float], winrolling_list: List[int],
                    api_key: str, months_gap_threshold: int) -> list[dict]:
     results: list[dict] = []
 
-    # 取得資料
     x1, code1 = "breath", series_id
     x2, code2 = "index", assetid
 
     df1 = mm(code1, "MS", x1, api_key)
     df2 = mm(code2, "MS", x2, api_key)
-
     if df1 is None or df2 is None:
         st.warning(f"series_id {series_id} 或 assetid {assetid} 取檔失敗。")
         return results
 
-    alldf_original = pd.concat([df1, df2], axis=1)
-    alldf_original = alldf_original.resample("MS").asfreq().ffill()
+    alldf_original = pd.concat([df1, df2], axis=1).resample("MS").asfreq().ffill()
 
-    timepast = 12     # 取樣基準點前 12 個月
-    timeforward = 12  # 取樣基準點後 12 個月
+    timepast = 12
+    timeforward = 12
 
     for std in std_list:
         for winrolling in winrolling_list:
@@ -126,11 +121,8 @@ def process_series(series_id: int, assetid: int, std_list: list[float], winrolli
 
                 finalb_dates_1: list[pd.Timestamp] = []
                 for dt in filtered_df.index:
-                    if not finalb_dates_1:
+                    if not finalb_dates_1 or month_diff(dt, finalb_dates_1[-1]) >= months_gap_threshold:
                         finalb_dates_1.append(dt)
-                    else:
-                        if month_diff(dt, finalb_dates_1[-1]) >= months_gap_threshold:
-                            finalb_dates_1.append(dt)
 
                 if not finalb_dates_1:
                     resulttable1 = None
@@ -160,13 +152,13 @@ def process_series(series_id: int, assetid: int, std_list: list[float], winrolli
                         data_cols = [col for j, col in enumerate(df_concat.columns) if j % 2 == 1]
                         origin = df_concat[data_cols]
                         finalb1 = origin.apply(lambda col: 100 * col / col.iloc[timepast])
-                        finalb1 = finalb1[finalb1.columns[-10:]]  # 只保留最近 10 次事件
+                        finalb1 = finalb1[finalb1.columns[-10:]]
                         finalb1["median"] = finalb1.mean(axis=1)
 
                         table1 = pd.concat([finalb1.iloc[timepast + off] for off in OFFSETS], axis=1)
                         table1.columns = [f"{off}m" for off in OFFSETS]
                         resulttable1 = table1.iloc[:-1]
-                        resulttable1.index = pd.to_datetime(resulttable1.index).strftime("%Y-%m-%d")
+                        # 保持索引為位置即可；如要顯示日期可另外存日期
                         perc_df = pd.DataFrame([(resulttable1 > 100).mean() * 100], index=["勝率"])
                         resulttable1 = pd.concat([resulttable1, perc_df, table1.iloc[-1:]])
 
@@ -192,11 +184,8 @@ def process_series(series_id: int, assetid: int, std_list: list[float], winrolli
 
                 finalb_dates_2: list[pd.Timestamp] = []
                 for dt in filtered_df.index:
-                    if not finalb_dates_2:
+                    if not finalb_dates_2 or month_diff(dt, finalb_dates_2[-1]) >= months_gap_threshold:
                         finalb_dates_2.append(dt)
-                    else:
-                        if month_diff(dt, finalb_dates_2[-1]) >= months_gap_threshold:
-                            finalb_dates_2.append(dt)
 
                 if not finalb_dates_2:
                     resulttable2 = None
@@ -231,7 +220,6 @@ def process_series(series_id: int, assetid: int, std_list: list[float], winrolli
                         table2 = pd.concat([finalb2.iloc[timepast + off] for off in OFFSETS], axis=1)
                         table2.columns = [f"{off}m" for off in OFFSETS]
                         resulttable2 = table2.iloc[:-1]
-                        resulttable2.index = pd.to_datetime(resulttable2.index).strftime("%Y-%m-%d")
                         perc_df = pd.DataFrame([(resulttable2 > 100).mean() * 100], index=["勝率"])
                         resulttable2 = pd.concat([resulttable2, perc_df, table2.iloc[-1:]])
 
@@ -278,10 +266,7 @@ if source == "Random demo":
         st.line_chart(df_demo[["value"]].rolling(win).mean())
 
 else:  # MacroMicro API
-    effective_api_key = st.secrets.get("MACROMICRO_API_KEY", "") if hasattr(st, "secrets") else ""
-    if not effective_api_key:
-        effective_api_key = api_key or os.environ.get("MACROMICRO_API_KEY", "")
-
+    effective_api_key = st.secrets.get("MACROMICRO_API_KEY", "") or api_key or os.environ.get("MACROMICRO_API_KEY", "")
     if not effective_api_key:
         st.error("缺少 MacroMicro API Key。請在 .streamlit/secrets.toml 設定或於側邊欄輸入。")
         st.stop()
@@ -292,7 +277,7 @@ else:  # MacroMicro API
         st.error("Series IDs 格式錯誤。請以逗號分隔整數 ID。")
         st.stop()
 
-    # 以 joblib 平行（若可用），否則單執行緒
+    # 平行或單執行緒
     if Parallel is not None:
         num_cores = max(1, min(4, multiprocessing.cpu_count()))
         results_nested = Parallel(n_jobs=num_cores)(
