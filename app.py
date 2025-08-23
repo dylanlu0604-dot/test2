@@ -23,8 +23,11 @@ st.write("可用 MacroMicro API 進行 rolling mean 計算。")
 
 with st.sidebar:
     st.header("資料來源與參數設定")
-    # 這裡只保留 MacroMicro（避免未定義變數）
     st.caption("此版本僅支援 MacroMicro API")
+
+    # 觸發邏輯選擇：Greater / Smaller
+    trigger_mode = st.radio("觸發邏輯", ["Greater", "Smaller"], horizontal=True)
+
     series_ids_text = st.text_input("breath series IDs（逗號分隔）", "10000")
     assetid = st.number_input("index series ID (assetid)", min_value=0, value=0, step=1)
     api_key = st.text_input(
@@ -43,7 +46,7 @@ with st.sidebar:
     months_gap_threshold = st.number_input("事件間隔（至少幾個月）", min_value=1, max_value=36, value=6)
 
 # ---------------------- Helpers ------------------------
-OFFSETS = [-12, -6, 0, 6, 12]  # 以「月」為單位（你的原邏輯）
+OFFSETS = [-12, -6, 0, 6, 12]  # 以「月」為單位（你現有的偏移列表）
 
 def _need_api_key() -> str:
     k = api_key or st.secrets.get("MACROMICRO_API_KEY", "") or os.environ.get("MACROMICRO_API_KEY", "")
@@ -75,8 +78,19 @@ def mm(series_id: int, frequency: str, name: str, k: str) -> pd.DataFrame | None
 def find_row_number_for_date(df_obj: pd.DataFrame, specific_date: pd.Timestamp) -> int:
     return df_obj.index.get_loc(pd.Timestamp(specific_date))
 
-# 主分析（保留你的原流程）
-def process_series(series_id: int, std_values: list[float], winrolling_values: list[int], k: str) -> list[dict]:
+def _condition(df: pd.DataFrame, std: float, winrolling: int, mode: str) -> pd.Series:
+    """
+    根據選擇的觸發邏輯回傳布林條件：
+    - Greater：過去6月最高 > 均值 + std*標準差
+    - Smaller：過去6月最低 < 均值 - std*標準差
+    """
+    if mode == "Greater":
+        return df["breath"].rolling(6).max() > df["Rolling_mean"] + std * df["Rolling_std"]
+    else:
+        return df["breath"].rolling(6).min() < df["Rolling_mean"] - std * df["Rolling_std"]
+
+# 主分析（保留你的原流程，只把條件改為可切換）
+def process_series(series_id: int, std_values: list[float], winrolling_values: list[int], k: str, mode: str) -> list[dict]:
     results: list[dict] = []
     try:
         x1, code1 = "breath", series_id
@@ -94,14 +108,14 @@ def process_series(series_id: int, std_values: list[float], winrolling_values: l
             for winrolling in winrolling_values:
                 try:
                     alldf = alldf_original.copy()
-                    timeforward, timepast = 31, 31  # 依你現在貼的程式維持 31
-                    months_threshold = months_gap_threshold  # 用側邊欄設定
+                    timeforward, timepast = 31, 31
+                    months_threshold = months_gap_threshold
 
                     # ===== 第一段分析：原始 breath =====
                     df = alldf[[x1, x2]].copy()
                     df["Rolling_mean"] = df["breath"].rolling(window=winrolling).mean()
                     df["Rolling_std"] = df["breath"].rolling(window=winrolling).std()
-                    filtered_df = df[df["breath"].rolling(6).max() > df["Rolling_mean"] + std * df["Rolling_std"]]
+                    filtered_df = df[_condition(df, std, winrolling, mode)]
 
                     finalb_dates_1: list[pd.Timestamp] = []
                     for date in filtered_df.index:
@@ -117,7 +131,7 @@ def process_series(series_id: int, std_values: list[float], winrolling_values: l
                         dfs = []
                         for dt in finalb_dates_1:
                             a = find_row_number_for_date(alldf, dt)
-                            if a - timepast < 0 or a + timeforward >= len(alldf):  # 邊界保護
+                            if a - timepast < 0 or a + timeforward >= len(alldf):
                                 continue
                             temp_df = alldf["index"].iloc[a - timepast : a + timeforward].to_frame(name=dt).reset_index()
                             dfs.append(temp_df)
@@ -136,9 +150,8 @@ def process_series(series_id: int, std_values: list[float], winrolling_values: l
 
                             offsets = [-12, -6, 0, 6, 12]
                             table1 = pd.concat([finalb1.iloc[timepast + off] for off in offsets], axis=1)
-                            table1.columns = [f"{off}d" for off in offsets]  # 依你現有的欄名延用 d
+                            table1.columns = [f"{off}d" for off in offsets]  # 仍沿用 d 命名
                             resulttable1 = table1.iloc[:-1]
-                            # 如果你真的需要日期索引再顯示，可自行處理；這裡保留你現有做法
                             perc_df = pd.DataFrame([(resulttable1 > 100).mean() * 100], index=["勝率"])
                             resulttable1 = pd.concat([resulttable1, perc_df, table1.iloc[-1:]])
 
@@ -156,7 +169,7 @@ def process_series(series_id: int, std_values: list[float], winrolling_values: l
                     df.dropna(inplace=True)
                     df["Rolling_mean"] = df["breath"].rolling(window=winrolling).mean()
                     df["Rolling_std"] = df["breath"].rolling(window=winrolling).std()
-                    filtered_df = df[df["breath"].rolling(6).max() > df["Rolling_mean"] + std * df["Rolling_std"]]
+                    filtered_df = df[_condition(df, std, winrolling, mode)]
 
                     finalb_dates_2: list[pd.Timestamp] = []
                     for date in filtered_df.index:
@@ -221,7 +234,7 @@ def process_series(series_id: int, std_values: list[float], winrolling_values: l
     return results
 
 # ---------------------- Main Flow ----------------------
-# 解析參數（維持你的用法）
+# 解析參數
 try:
     series_ids = [int(s.strip()) for s in series_ids_text.split(",") if s.strip()]
 except Exception:
@@ -236,45 +249,8 @@ k = _need_api_key()
 if Parallel is not None:
     num_cores = max(1, min(4, multiprocessing.cpu_count()))
     results_nested = Parallel(n_jobs=num_cores)(
-        delayed(process_series)(sid, std_values, winrolling_values, k) for sid in series_ids
+        delayed(process_series)(sid, std_values, winrolling_values, k, trigger_mode) for sid in series_ids
     )
     results_flat = [item for sublist in results_nested for item in sublist]
 else:
-    st.warning("`joblib` 未安裝，改用單執行緒。")
-    results_flat = []
-    for sid in series_ids:
-        results_flat.extend(process_series(sid, std_values, winrolling_values, k))
-
-if not results_flat:
-    st.info("尚無可顯示結果。請調整參數或確認 series 有足夠歷史資料。")
-    st.stop()
-
-# 主表：統計結果
-summary_df = pd.DataFrame([{k: v for k, v in r.items() if 'resulttable' not in k and 'finalb' not in k} for r in results_flat])
-
-st.subheader("匯總結果（Summary）")
-st.dataframe(summary_df)
-
-# 範例輸出（沿用你原本的示意）
-resulttable1_list = [pd.DataFrame(r['resulttable1']) for r in results_flat if r.get('resulttable1') is not None]
-resulttable2_list = [pd.DataFrame(r['resulttable2']) for r in results_flat if r.get('resulttable2') is not None]
-finalb1_list = [pd.DataFrame(r['finalb1']) for r in results_flat if r.get('finalb1') is not None]
-finalb2_list = [pd.DataFrame(r['finalb2']) for r in results_flat if r.get('finalb2') is not None]
-
-if resulttable1_list:
-    st.write("=== resulttable1 範例 ===")
-    st.dataframe(resulttable1_list[0].head())
-
-if resulttable2_list:
-    st.write("=== resulttable2 範例 ===")
-    st.dataframe(resulttable2_list[0].head())
-
-if finalb1_list:
-    st.write("=== finalb1 範例 ===")
-    st.dataframe(finalb1_list[0].head())
-
-if finalb2_list:
-    st.write("=== finalb2 範例 ===")
-    st.dataframe(finalb2_list[0].head())
-
-st.caption(f"Last run at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    st.warn
