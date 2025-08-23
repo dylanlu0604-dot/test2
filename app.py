@@ -17,11 +17,10 @@ except Exception:
     def delayed(f):
         return f
 
-st.set_page_config(page_title="Rolling Mean Demo", layout="wide")
+st.set_page_config(page_title="熊市訊號與牛市訊號尋找工具", layout="wide")
 
 # -------------------------- UI --------------------------
-st.title("互動式 Rolling Mean 視覺化")
-st.write("可用 MacroMicro API 進行 rolling mean 計算。")
+st.title("熊市訊號與牛市訊號尋找工具")
 
 with st.sidebar:
     st.header("資料來源與參數設定")
@@ -269,7 +268,7 @@ st.subheader("匯總結果（Summary）")
 st.dataframe(summary_df)
 
 # ===== 第一段分析：原始 breath =====
-st.write("===== 第一段分析：原始 breath =====")
+st.subheader("原始值版本")
 resulttable1_list = [r['resulttable1'] for r in results_flat if r.get('resulttable1') is not None]
 if resulttable1_list:
     st.write(resulttable1_list[0])
@@ -289,7 +288,8 @@ if results_flat[0].get('finalb1') is not None:
     st.pyplot(plt)
 
 # ===== 第二段分析：breath / breath.shift(12) =====
-st.write("===== 第二段分析：breath / breath.shift(12) =====")
+st.subheader("年增率版本")
+
 resulttable2_list = [r['resulttable2'] for r in results_flat if r.get('resulttable2') is not None]
 if resulttable2_list:
     st.write(resulttable2_list[0])
