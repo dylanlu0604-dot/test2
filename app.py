@@ -149,7 +149,7 @@ def process_series(series_id: int, std_value: float, winrolling_value: int, k: s
 
                 offsets = [-12, -6, 0, 6, 12]
                 table1 = pd.concat([finalb1.iloc[timepast + off] for off in offsets], axis=1)
-                table1.columns = [f"{off}M" for off in offsets]  # 仍沿用 d 命名
+                table1.columns = [f"{off}d" for off in offsets]  # 仍沿用 d 命名
                 resulttable1 = table1.iloc[:-1]
                 perc_df = pd.DataFrame([(resulttable1 > 100).mean() * 100], index=["勝率"])
                 resulttable1 = pd.concat([resulttable1, perc_df, table1.iloc[-1:]])
@@ -202,7 +202,7 @@ def process_series(series_id: int, std_value: float, winrolling_value: int, k: s
 
                 offsets = [-12, -6, 0, 6, 12]
                 table2 = pd.concat([finalb2.iloc[timepast + off] for off in offsets], axis=1)
-                table2.columns = [f"{off}M" for off in offsets]
+                table2.columns = [f"{off}d" for off in offsets]
                 resulttable2 = table2.iloc[:-1]
                 perc_df = pd.DataFrame([(resulttable2 > 100).mean() * 100], index=["勝率"])
                 resulttable2 = pd.concat([resulttable2, perc_df, table2.iloc[-1:]])
