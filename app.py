@@ -4,13 +4,14 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import requests
-from datetime import datetime
-import multiprocessing
 import matplotlib.pyplot as plt
+from datetime import datetime
+from joblib import Parallel, delayed
+import multiprocessing
 
-# --- Optional parallelism (graceful fallback if joblib is not installed) ---
+# --- Optional parallelism ---
 try:
-    from joblib import Parallel, delayed  # type: ignore
+    from joblib import Parallel, delayed
 except Exception:
     Parallel = None
     def delayed(f):
@@ -25,7 +26,7 @@ st.write("可用 MacroMicro API 進行 rolling mean 計算。")
 with st.sidebar:
     st.header("資料來源與參數設定")
     st.caption("此版本僅支援 MacroMicro API")
-
+    
     # 觸發邏輯選擇：Greater / Smaller
     trigger_mode = st.radio("觸發邏輯", ["Greater", "Smaller"], horizontal=True)
 
@@ -47,7 +48,7 @@ with st.sidebar:
     months_gap_threshold = st.number_input("事件間隔（至少幾個月）", min_value=1, max_value=36, value=6)
 
 # ---------------------- Helpers ------------------------
-OFFSETS = [-12, -6, 0, 6, 12]  # 以「月」為單位（你現有的偏移列表）
+OFFSETS = [-12, -6, 0, 6, 12]  # 以「月」為單位
 
 def _need_api_key() -> str:
     k = api_key or st.secrets.get("MACROMICRO_API_KEY", "") or os.environ.get("MACROMICRO_API_KEY", "")
@@ -286,10 +287,10 @@ def plot_result(data, label, color, timepast, timeforward):
     ax.axvline(x=0, color='grey', linestyle='--')
     ax.set_xlabel('Months')
     ax.set_ylabel('Index')
-    st.pyplot
+    
+    # 顯示圖表
+    st.pyplot(fig)
 
-
-# 渲染圖表
-if results_flat:
-    plot_result(results_flat[0]['finalb1']['median'], 'Final b1', 'darkgreen', timepast=31, timeforward=31)
-    plot_result(results_flat[0]['finalb2']['median'], 'Final b2', 'darkblue', timepast=31, timeforward=31)
+# 繪製圖表
+plot_result(results_flat[0]['finalb1']['median'], 'Final b1', 'darkgreen', timepast=31, timeforward=31)
+plot_result(results_flat[0]['finalb2']['median'], 'Final b2', 'darkblue', timepast=31, timeforward=31)
