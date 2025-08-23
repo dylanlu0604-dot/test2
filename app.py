@@ -223,4 +223,72 @@ def process_series(series_id: int, std_values: list[float], winrolling_values: l
                         "times1": times1, "effective1": effective1,
                         "pre2": pre2, "prewin2": prewin2, "after2": after2, "afterwin2": afterwin2,
                         "times2": times2, "effective2": effective2,
-                        "resulttable
+                        "resulttable1": resulttable1 if resulttable1 is not None else None,
+                        "finalb1": finalb1.reset_index() if finalb1 is not None else None,
+                        "resulttable2": resulttable2 if resulttable2 is not None else None,
+                        "finalb2": finalb2.reset_index() if finalb2 is not None else None,
+                    })
+
+                except Exception as e:
+                    st.write(f"Error during CALCULATION for series {series_id}: {e}")
+    except Exception as e:
+        st.write(f"FATAL error in data for series {series_id}: {e}")
+    return results
+
+# ---------------------- Main Flow ----------------------
+# 解析參數
+try:
+    series_ids = [int(s.strip()) for s in series_ids_text.split(",") if s.strip()]
+except Exception:
+    st.error("Series IDs 格式錯誤。請以逗號分隔整數 ID。")
+    st.stop()
+
+std_values = std_list
+winrolling_values = winrolling_list
+k = _need_api_key()
+
+# 平行執行（或退回單執行緒）
+if Parallel is not None:
+    num_cores = max(1, min(4, multiprocessing.cpu_count()))
+    results_nested = Parallel(n_jobs=num_cores)(
+        delayed(process_series)(sid, std_values, winrolling_values, k, trigger_mode) for sid in series_ids
+    )
+    results_flat = [item for sublist in results_nested for item in sublist]
+else:
+    st.warning("`joblib` 未安裝，改用單執行緒。")
+    results_flat = []
+    for sid in series_ids:
+        results_flat.extend(process_series(sid, std_values, winrolling_values, k, trigger_mode))
+
+if not results_flat:
+    st.info("尚無可顯示結果。請調整參數或確認 series 有足夠歷史資料。")
+    st.stop()
+
+# 主表：統計結果
+summary_df = pd.DataFrame([{k: v for k, v in r.items() if 'resulttable' not in k and 'finalb' not in k} for r in results_flat])
+
+st.subheader("匯總結果（Summary）")
+st.dataframe(summary_df)
+
+# 繪製結果
+def plot_result(data, label, color):
+    fig, ax = plt.subplots(figsize=(7.5, 8))
+    x = np.linspace(-timepast, timeforward - 1, timepast + timeforward)
+    ax.plot(x, data, label=label, color=color)
+
+    xlim = (-15, 15)
+    ax.set_xlim(xlim)
+    ax.set_ylim(
+        bottom=data[(x >= xlim[0]) & (x <= xlim[1])].min() * 0.99,
+        top=data[(x >= xlim[0]) & (x <= xlim[1])].max() * 1.01
+    )
+
+    ax.axvline(x=0, color='grey', linestyle='--')
+    ax.set_xlabel('Months')
+    ax.set_ylabel('Index')
+    st.pyplot(fig)
+
+# 渲染圖表
+if results_flat:
+    plot_result(results_flat[0]['finalb1']['median'], 'Final b1', 'darkgreen')
+    plot_result(results_flat[0]['finalb2']['median'], 'Final b2', 'darkblue')
