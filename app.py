@@ -25,10 +25,6 @@ with st.sidebar:
 
     source = st.radio("資料來源", ["Random demo", "MacroMicro API"], horizontal=True)
 
-    # 通用參數
-    a = st.number_input("線性變換係數 a", value=1.0, step=0.1, format="%.3f")
-    b = st.number_input("線性變換偏移 b", value=0.0, step=1.0, format="%.3f")
-
     # 事件偵測與視窗參數
     std_choices = [0.5, 1.0, 1.5, 2.0]
     std_list = st.multiselect("std（可複選）", options=std_choices, default=[1.0])
@@ -36,7 +32,6 @@ with st.sidebar:
     roll_choices = [6, 12, 24, 36, 48]
     winrolling_list = st.multiselect("rolling 視窗（月，可複選）", options=roll_choices, default=[12])
 
-    months_gap_threshold = st.number_input("事件間隔（至少幾個月）", min_value=1, max_value=24, value=6)
 
     # Random demo 參數
     if source == "Random demo":
@@ -55,6 +50,9 @@ with st.sidebar:
         st.caption("若已在 .streamlit/secrets.toml 設定 `MACROMICRO_API_KEY`，此欄可留空。")
 
 # ---------------------- Helpers ------------------------
+
+months_gap_threshold = 30
+
 OFFSETS = [-12, -6, 0, 6, 12]  # 以「月」為單位
 
 @st.cache_data(show_spinner=False, ttl=3600)
