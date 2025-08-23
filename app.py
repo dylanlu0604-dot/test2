@@ -253,4 +253,41 @@ if Parallel is not None:
     )
     results_flat = [item for sublist in results_nested for item in sublist]
 else:
-    st.warn
+    st.warning("`joblib` 未安裝，改用單執行緒。")
+    results_flat = []
+    for sid in series_ids:
+        results_flat.extend(process_series(sid, std_values, winrolling_values, k, trigger_mode))
+
+if not results_flat:
+    st.info("尚無可顯示結果。請調整參數或確認 series 有足夠歷史資料。")
+    st.stop()
+
+# 主表：統計結果
+summary_df = pd.DataFrame([{k: v for k, v in r.items() if 'resulttable' not in k and 'finalb' not in k} for r in results_flat])
+
+st.subheader("匯總結果（Summary）")
+st.dataframe(summary_df)
+
+# 範例輸出
+resulttable1_list = [pd.DataFrame(r['resulttable1']) for r in results_flat if r.get('resulttable1') is not None]
+resulttable2_list = [pd.DataFrame(r['resulttable2']) for r in results_flat if r.get('resulttable2') is not None]
+finalb1_list = [pd.DataFrame(r['finalb1']) for r in results_flat if r.get('finalb1') is not None]
+finalb2_list = [pd.DataFrame(r['finalb2']) for r in results_flat if r.get('finalb2') is not None]
+
+if resulttable1_list:
+    st.write("=== resulttable1 範例 ===")
+    st.dataframe(resulttable1_list[0].head())
+
+if resulttable2_list:
+    st.write("=== resulttable2 範例 ===")
+    st.dataframe(resulttable2_list[0].head())
+
+if finalb1_list:
+    st.write("=== finalb1 範例 ===")
+    st.dataframe(finalb1_list[0].head())
+
+if finalb2_list:
+    st.write("=== finalb2 範例 ===")
+    st.dataframe(finalb2_list[0].head())
+
+st.caption(f"Last run at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
