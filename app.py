@@ -357,8 +357,8 @@ with col2:
         ax.axvline(0, color='grey', linestyle='--')
         ax.set_xlim(-15, 15)
         ax.set_ylim(
-            bottom=float(np.min(y) * 0.99),
-            top=float(np.max(y) * 1.01)
+            bottom=float(np.min(y) * 0.999),
+            top=float(np.max(y) * 1.001)
         )
         ax.set_xlabel('Months')
         ax.set_ylabel('Index')
