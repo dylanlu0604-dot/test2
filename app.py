@@ -307,14 +307,14 @@ with col2:
         # 右邊畫圖
         x = np.linspace(-31, 31, 31 + 31)
         y = results_flat[0]['finalb1']['median']
-        fig, ax = plt.subplots(figsize=(4, 3))
-        ax.plot(x, y, label='Final b1', color='darkgreen')
+        fig, ax = plt.subplots(figsize=(6, 5))
+        ax.plot(x, y, label='Final b2', color='darkblue')
         ax.axvline(0, color='grey', linestyle='--')
-        ax.set_xlim(-15, 15)
+        xlim = (-15, 15)
+        ax.set_xlim(xlim)
         ax.set_ylim(
-            bottom=float(np.min(y) * 1),
-            top=float(np.max(y) * 1)
-        )
+            bottom=y[(x >= xlim[0]) & (x <= xlim[1])].min() * 0.99,
+            top=y[(x >= xlim[0]) & (x <= xlim[1])].max() * 1.01)
         ax.set_xlabel('Months')
         ax.set_ylabel('Index')
         st.pyplot(fig, use_container_width=True)
