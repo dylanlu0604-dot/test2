@@ -307,6 +307,9 @@ with col2:
         ax.set_ylabel('Index')
         st.pyplot(fig, use_container_width=True)
 
+st.divider()
+
+
 # ===== 第二段分析：breath / breath.shift(12) =====
 st.subheader("年增率版本")
 resulttable2_list = [r['resulttable2'] for r in results_flat if r.get('resulttable2') is not None]
