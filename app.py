@@ -366,35 +366,102 @@ with col2:
         st.pyplot(fig, use_container_width=True)
 
 
-# ===== Plot by series_ids_text: Levels & YoY (interactive, draggable/zoomable) =====
+# ===== Plot by series_ids_text: Levels & YoY (brush to set x-range; y auto-rescales) =====
 st.divider()
-st.subheader("Each breath series: Levels (rolling mean ±σ) and YoY (interactive)")
+st.subheader("Each breath series: Levels (rolling mean ±σ) and YoY (brush to set time window)")
 
-import plotly.graph_objects as go  # add this near your imports if not already there
+import altair as alt
+alt.data_transformers.disable_max_rows()
+
 sigma_levels = [0.5, 1.0, 1.5, 2.0]
 
-def _add_common_xaxis(fig: go.Figure):
-    fig.update_xaxes(
-        rangeslider_visible=True,
-        rangeselector=dict(
-            buttons=[
-                dict(count=1, label="1Y", step="year", stepmode="backward"),
-                dict(count=3, label="3Y", step="year", stepmode="backward"),
-                dict(count=5, label="5Y", step="year", stepmode="backward"),
-                dict(count=10, label="10Y", step="year", stepmode="backward"),
-                dict(step="all", label="All"),
-            ]
-        ),
+def levels_chart_with_brush(s: pd.Series, sid: int):
+    roll_mean = s.rolling(winrolling_value).mean()
+    roll_std  = s.rolling(winrolling_value).std()
+
+    df_levels = pd.DataFrame({
+        "Date": s.index,
+        "Level": s.values,
+        "Mean": roll_mean.values,
+    })
+    # add ±σ bands
+    for m in sigma_levels:
+        df_levels[f"+{m}σ"] = (roll_mean + m * roll_std).values
+        df_levels[f"-{m}σ"] = (roll_mean - m * roll_std).values
+
+    # melt to long format
+    long_levels = df_levels.melt("Date", var_name="Series", value_name="Value").dropna()
+
+    # brush selection on x (time)
+    brush = alt.selection_interval(encodings=["x"])
+
+    upper = (
+        alt.Chart(long_levels)
+        .mark_line()
+        .encode(
+            x=alt.X("Date:T", title="Date"),
+            y=alt.Y("Value:Q", title="Level"),
+            color=alt.Color("Series:N", legend=alt.Legend(orient="top")),
+            tooltip=[alt.Tooltip("Date:T"), "Series:N", alt.Tooltip("Value:Q", format=".2f")],
+        )
+        .transform_filter(brush)  # filter data by brushed x-range -> y auto-rescales
+        .properties(title=f"{sid} | {winrolling_value}-period rolling mean ±σ", height=320)
     )
-    fig.update_layout(
-        hovermode="x unified",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
-        margin=dict(l=40, r=20, t=50, b=40),
+
+    lower = (
+        alt.Chart(df_levels)
+        .mark_area(opacity=0.4)
+        .encode(x=alt.X("Date:T", title=""), y=alt.Y("Level:Q", title=""))
+        .properties(height=60)
+        .add_selection(brush)
     )
-    return fig
+
+    return alt.vconcat(upper, lower).resolve_scale(y="independent")
+
+def yoy_chart_with_brush(s: pd.Series, sid: int):
+    yoy = s.pct_change(12) * 100.0
+    yoy_mean = yoy.rolling(winrolling_value).mean()
+    yoy_std  = yoy.rolling(winrolling_value).std()
+
+    df_yoy = pd.DataFrame({
+        "Date": yoy.index,
+        "YoY (%)": yoy.values,
+        "Mean": yoy_mean.values,
+    })
+    for m in sigma_levels:
+        df_yoy[f"+{m}σ"] = (yoy_mean + m * yoy_std).values
+        df_yoy[f"-{m}σ"] = (yoy_mean - m * yoy_std).values
+
+    long_yoy = df_yoy.melt("Date", var_name="Series", value_name="Value").dropna()
+
+    brush = alt.selection_interval(encodings=["x"])
+
+    upper = (
+        alt.Chart(long_yoy)
+        .mark_line()
+        .encode(
+            x=alt.X("Date:T", title="Date"),
+            y=alt.Y("Value:Q", title="YoY (%)"),
+            color=alt.Color("Series:N", legend=alt.Legend(orient="top")),
+            tooltip=[alt.Tooltip("Date:T"), "Series:N", alt.Tooltip("Value:Q", format=".2f")],
+        )
+        .transform_filter(brush)  # y auto-rescales to brushed x-range
+        .properties(title=f"{sid} | YoY (%) with {winrolling_value}-period rolling mean ±σ", height=320)
+    )
+
+    zero_line = alt.Chart(pd.DataFrame({"y": [0]})).mark_rule(strokeDash=[4,4]).encode(y="y:Q")
+
+    lower = (
+        alt.Chart(df_yoy)
+        .mark_area(opacity=0.4)
+        .encode(x=alt.X("Date:T", title=""), y=alt.Y("YoY (%):Q", title=""))
+        .properties(height=60)
+        .add_selection(brush)
+    )
+
+    return alt.vconcat(upper + zero_line, lower).resolve_scale(y="independent")
 
 for sid in series_ids:
-    # Fetch data (use series id as column name)
     df_target = mm(int(sid), "MS", f"series_{sid}", k)
     if df_target is None or df_target.empty:
         st.info(f"No data for series {sid}, skipping.")
@@ -404,56 +471,8 @@ for sid in series_ids:
 
     with st.expander(f"Series {sid}", expanded=False):
         colA, colB = st.columns(2)
-
-        # ---- A) Levels chart (rolling mean ±σ), interactive ----
         with colA:
-            roll_mean = s.rolling(winrolling_value).mean()
-            roll_std  = s.rolling(winrolling_value).std()
-
-            fig1 = go.Figure()
-            fig1.add_trace(go.Scatter(x=s.index,        y=s.values,        name="Level", mode="lines"))
-            fig1.add_trace(go.Scatter(x=roll_mean.index,y=roll_mean.values,name="Mean",  mode="lines"))
-
-            for m in sigma_levels:
-                upper = roll_mean + m * roll_std
-                lower = roll_mean - m * roll_std
-                fig1.add_trace(go.Scatter(x=upper.index, y=upper.values, name=f"+{m}σ", mode="lines",
-                                          line=dict(dash="dot")))
-                fig1.add_trace(go.Scatter(x=lower.index, y=lower.values, name=f"-{m}σ", mode="lines",
-                                          line=dict(dash="dot")))
-
-            fig1.update_layout(
-                title=f"{sid} | {winrolling_value}-period rolling mean ±σ",
-                xaxis_title="Date", yaxis_title="Level"
-            )
-            _add_common_xaxis(fig1)
-            st.plotly_chart(fig1, use_container_width=True, config={"scrollZoom": True})
-
-        # ---- B) YoY chart (rolling mean ±σ), interactive ----
+            st.altair_chart(levels_chart_with_brush(s, sid), use_container_width=True)
         with colB:
-            yoy = s.pct_change(12) * 100.0
-            yoy_mean = yoy.rolling(winrolling_value).mean()
-            yoy_std  = yoy.rolling(winrolling_value).std()
-
-            fig2 = go.Figure()
-            fig2.add_trace(go.Scatter(x=yoy.index,        y=yoy.values,        name="YoY (%)", mode="lines"))
-            fig2.add_trace(go.Scatter(x=yoy_mean.index,   y=yoy_mean.values,   name="Mean",    mode="lines"))
-
-            for m in sigma_levels:
-                upper = yoy_mean + m * yoy_std
-                lower = yoy_mean - m * yoy_std
-                fig2.add_trace(go.Scatter(x=upper.index, y=upper.values, name=f"+{m}σ", mode="lines",
-                                          line=dict(dash="dot")))
-                fig2.add_trace(go.Scatter(x=lower.index, y=lower.values, name=f"-{m}σ", mode="lines",
-                                          line=dict(dash="dot")))
-
-            # zero line
-            fig2.add_hline(y=0, line_dash="dash", line_width=1)
-
-            fig2.update_layout(
-                title=f"{sid} | YoY (%) with {winrolling_value}-period rolling mean ±σ",
-                xaxis_title="Date", yaxis_title="YoY (%)"
-            )
-            _add_common_xaxis(fig2)
-            st.plotly_chart(fig2, use_container_width=True, config={"scrollZoom": True})
+            st.altair_chart(yoy_chart_with_brush(s, sid), use_container_width=True)
 
