@@ -28,8 +28,8 @@ with st.sidebar:
     # 觸發邏輯選擇：Greater / Smaller
     trigger_mode = st.radio("觸發邏輯", ["Greater", "Smaller"], horizontal=True)
 
-    series_ids_text = st.text_input("breath series IDs（逗號分隔）", "10000")
-    assetid = st.number_input("index series ID (assetid)", min_value=0, value=0, step=1)
+    series_ids_text = st.text_input("變數ID", "10000")
+    assetid = st.number_input("研究目標ID", min_value=0, value=0, step=1)
     api_key = st.text_input(
         "MacroMicro API Key（留空則使用 st.secrets 或環境變數）",
         value=st.secrets.get("MACROMICRO_API_KEY", os.environ.get("MACROMICRO_API_KEY", "")),
