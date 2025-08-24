@@ -24,7 +24,6 @@ st.title("熊市訊號與牛市訊號尋找工具")
 
 with st.sidebar:
     st.header("資料來源與參數設定")
-    st.caption("此版本僅支援 MacroMicro API")
     
     # 觸發邏輯選擇：Greater / Smaller
     trigger_mode = st.radio("觸發邏輯", ["Greater", "Smaller"], horizontal=True)
@@ -277,7 +276,7 @@ st.subheader("原始值版本")
 resulttable1_list = [r['resulttable1'] for r in results_flat if r.get('resulttable1') is not None]
 
 
-effectivepart1 = 'yes' if resulttable1_list[0]['-12d'][-1] * resulttable1_list[0]['-12d'][-1] > 0 and len(resulttable1_list[0]) > 10 else 'no'
+effectivepart1 = '為有效訊號' if resulttable1_list[0]['-12d'][-1] * resulttable1_list[0]['-12d'][-1] > 0 and len(resulttable1_list[0]) > 10 else '不是有效訊號' 
 
 
 st.subheader(effectivepart1)
@@ -317,6 +316,11 @@ st.divider()
 # ===== 第二段分析：breath / breath.shift(12) =====
 st.subheader("年增率版本")
 resulttable2_list = [r['resulttable2'] for r in results_flat if r.get('resulttable2') is not None]
+
+
+effectivepart2 = '為有效訊號' if resulttable2_list[0]['-12d'][-1] * resulttable2_list[0]['-12d'][-1] > 0 and len(resulttable2_list[0]) > 10 else '不是有效訊號' 
+st.subheader(effectivepart1)
+
 
 # 並排：左表右圖
 col1, col2 = st.columns([1, 1])
