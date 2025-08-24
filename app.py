@@ -291,7 +291,7 @@ if resulttable1_list:
 # 繪圖
 if results_flat[0].get('finalb1') is not None:
     st.write("Plotting finalb1 median")
-    plt.figure(figsize=(7.5, 8))
+    plt.figure(figsize=(5, 6))
     x = np.linspace(-31, 31, 31 + 31)
     y = results_flat[0]['finalb1']['median']
     plt.plot(x, y, label='Final b1', color='darkgreen')
@@ -312,7 +312,7 @@ if resulttable2_list:
 # 繪圖
 if results_flat[0].get('finalb2') is not None:
     st.write("Plotting finalb2 median")
-    plt.figure(figsize=(7.5, 8))
+    plt.figure(figsize=(5, 6))
     y = results_flat[0]['finalb2']['median']
     plt.plot(x, y, label='Final b2', color='darkblue')
     plt.axvline(x=0, color='grey', linestyle='--')
