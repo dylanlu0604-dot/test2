@@ -355,7 +355,8 @@ with col2:
         fig, ax = plt.subplots(figsize=(6, 5))
         ax.plot(x, y, label='Final b2', color='darkblue')
         ax.axvline(0, color='grey', linestyle='--')
-        ax.set_xlim(-15, 15)
+        xlim = (-15, 15)
+        ax.set_xlim(xlim)
         ax.set_ylim(
             bottom=y[(x >= xlim[0]) & (x <= xlim[1])].min() * 0.99,
             top=y[(x >= xlim[0]) & (x <= xlim[1])].max() * 1.01)
