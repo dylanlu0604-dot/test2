@@ -357,8 +357,8 @@ with col2:
         ax.axvline(0, color='grey', linestyle='--')
         ax.set_xlim(-15, 15)
         ax.set_ylim(
-            bottom=y3[(x >= xlim[0]) & (x <= xlim[1])].min() * 0.99,
-            top=y3[(x >= xlim[0]) & (x <= xlim[1])].max() * 1.01)
+            bottom=y[(x >= xlim[0]) & (x <= xlim[1])].min() * 0.99,
+            top=y[(x >= xlim[0]) & (x <= xlim[1])].max() * 1.01)
         ax.set_xlabel('Months')
         ax.set_ylabel('Index')
         st.pyplot(fig, use_container_width=True)
