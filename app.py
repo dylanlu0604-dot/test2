@@ -40,7 +40,7 @@ with st.sidebar:
     std_choices = [0.5, 1.0, 1.5, 2.0]
     std_value = st.selectbox("標準差門檻", options=std_choices, index=1)
 
-    roll_choices = [6, 12, 24, 36, 48]
+    roll_choices = [6, 12, 24, 36, 60,120]
     winrolling_value = st.selectbox("滾動期數", options=roll_choices, index=1)
 
     months_gap_threshold = st.number_input("事件間隔（至少幾個月）", min_value=1, max_value=36, value=6)
