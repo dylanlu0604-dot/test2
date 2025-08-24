@@ -365,53 +365,66 @@ with col2:
         st.pyplot(fig, use_container_width=True)
 
 
-# ===== 最後加一張：target 的滾動均值 ±σ 帶 =====
-st.subheader("Target 與滾動均值 ±σ 帶")
+# ===== 依 series_ids_text 繪圖：Levels 與 YoY =====
+st.divider()
+st.subheader("各 breath series：Levels（滾動均值 ±σ）與 YoY（年增率）")
 
-# 選要畫的 target：優先畫 index(assetid)，若沒填就畫第一個 breath series
-if assetid and assetid > 0:
-    target_id = int(assetid)
-    target_name = "index"
-elif series_ids:
-    target_id = int(series_ids[0])
-    target_name = "breath"
-else:
-    target_id = None
-    target_name = "target"
+sigma_levels = [0.5, 1.0, 1.5, 2.0]
 
-if target_id is not None:
-    df_target = mm(target_id, "MS", target_name, k)  # 注意：mm 需要 k
-    if df_target is not None and not df_target.empty:
-        s = df_target.iloc[:, 0].astype(float)  # 轉成 Series 方便 rolling
+for sid in series_ids:
+    # 取數據（用 series id 當欄名）
+    df_target = mm(int(sid), "MS", f"series_{sid}", k)
+    if df_target is None or df_target.empty:
+        st.info(f"series {sid} 沒有資料，略過。")
+        continue
 
-        roll_mean = s.rolling(winrolling_value).mean()
-        roll_std  = s.rolling(winrolling_value).std()
+    s = df_target.iloc[:, 0].astype(float)
 
-        # 建立 ±σ 各條帶
-        bands = {
-            "均值": roll_mean,
-            "+0.5σ": roll_mean + 0.5 * roll_std,
-            "+1σ":   roll_mean + 1.0 * roll_std,
-            "+1.5σ": roll_mean + 1.5 * roll_std,
-            "+2σ":   roll_mean + 2.0 * roll_std,
-            "-0.5σ": roll_mean - 0.5 * roll_std,
-            "-1σ":   roll_mean - 1.0 * roll_std,
-            "-1.5σ": roll_mean - 1.5 * roll_std,
-            "-2σ":   roll_mean - 2.0 * roll_std,
-        }
+    with st.expander(f"Series {sid}", expanded=False):
+        colA, colB = st.columns(2)
 
-        fig, ax = plt.subplots(figsize=(8, 4))
-        ax.plot(s.index, s.values, label=f"{target_name} 原始", linewidth=1.2)
-        for label, ser in bands.items():
-            ax.plot(ser.index, ser.values, label=label, linewidth=0.9, alpha=0.9)
+        # ---- A) 原始 Levels 圖（均值 ±σ）----
+        with colA:
+            roll_mean = s.rolling(winrolling_value).mean()
+            roll_std  = s.rolling(winrolling_value).std()
 
-        ax.set_title(f"{target_name}：{winrolling_value}期滾動均值 ±σ 帶")
-        ax.set_xlabel("Date")
-        ax.set_ylabel(target_name)
-        ax.legend(ncol=3, fontsize=8)
-        ax.grid(True, alpha=0.2)
-        st.pyplot(fig, use_container_width=True)
-    else:
-        st.info("目標序列沒有資料，無法繪圖。")
-else:
-    st.info("請先設定 assetid 或 breath series。")
+            fig1, ax1 = plt.subplots(figsize=(8, 4))
+            ax1.plot(s.index, s.values, label="Level", linewidth=1.2)
+            ax1.plot(roll_mean.index, roll_mean.values, label="均值", linewidth=1.0)
+
+            for m in sigma_levels:
+                upper = roll_mean + m * roll_std
+                lower = roll_mean - m * roll_std
+                ax1.plot(upper.index, upper.values, label=f"+{m}σ", linewidth=0.9, alpha=0.9)
+                ax1.plot(lower.index, lower.values, label=f"-{m}σ", linewidth=0.9, alpha=0.9)
+
+            ax1.set_title(f"{sid} | {winrolling_value}期滾動均值 ±σ")
+            ax1.set_xlabel("Date")
+            ax1.set_ylabel("Level")
+            ax1.grid(True, alpha=0.2)
+            ax1.legend(ncol=3, fontsize=8)
+            st.pyplot(fig1, use_container_width=True)
+
+        # ---- B) YoY（年增率）圖（均值 ±σ）----
+        with colB:
+            yoy = s.pct_change(12) * 100.0              # YoY 百分比
+            yoy_mean = yoy.rolling(winrolling_value).mean()
+            yoy_std  = yoy.rolling(winrolling_value).std()
+
+            fig2, ax2 = plt.subplots(figsize=(8, 4))
+            ax2.plot(yoy.index, yoy.values, label="YoY (%)", linewidth=1.2)
+            ax2.plot(yoy_mean.index, yoy_mean.values, label="均值", linewidth=1.0)
+            ax2.axhline(0, linestyle="--", linewidth=0.8, alpha=0.6)
+
+            for m in sigma_levels:
+                upper = yoy_mean + m * yoy_std
+                lower = yoy_mean - m * yoy_std
+                ax2.plot(upper.index, upper.values, label=f"+{m}σ", linewidth=0.9, alpha=0.9)
+                ax2.plot(lower.index, lower.values, label=f"-{m}σ", linewidth=0.9, alpha=0.9)
+
+            ax2.set_title(f"{sid} | YoY (%)，{winrolling_value}期滾動均值 ±σ")
+            ax2.set_xlabel("Date")
+            ax2.set_ylabel("YoY (%)")
+            ax2.grid(True, alpha=0.2)
+            ax2.legend(ncol=3, fontsize=8)
+            st.pyplot(fig2, use_container_width=True)
