@@ -268,8 +268,7 @@ if not results_flat:
 # 主表：統計結果
 summary_df = pd.DataFrame([{k: v for k, v in r.items() if 'resulttable' not in k and 'finalb' not in k} for r in results_flat])
 
-summary_df.columns = ['數據ID','標準差門檻','滾動期數','條件觸發前報酬','條件觸發前勝率','條件觸發後報酬','條件觸發後勝率','條件觸發次數','該訊號否有效']+
- ['條件觸發前報酬(yoy版本)','條件觸發前勝率(yoy版本)','條件觸發後報酬(yoy版本)','條件觸發後勝率(yoy版本)','條件觸發次數(yoy版本)','該訊號否有效(yoy版本)']
+summary_df.columns = ['數據ID','標準差門檻','滾動期數','條件觸發前報酬','條件觸發前勝率','條件觸發後報酬','條件觸發後勝率','條件觸發次數','該訊號否有效','條件觸發前報酬(yoy版本)','條件觸發前勝率(yoy版本)','條件觸發後報酬(yoy版本)','條件觸發後勝率(yoy版本)','條件觸發次數(yoy版本)','該訊號否有效(yoy版本)']
 sdfcol = summary_df.columns
 
 # a: 選擇前8列
