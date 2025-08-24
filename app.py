@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 from joblib import Parallel, delayed
 import multiprocessing
+import plotly.graph_objects as go
 
 # --- Optional parallelism ---
 try:
