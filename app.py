@@ -295,7 +295,7 @@ with col2:
         # 右邊畫圖
         x = np.linspace(-31, 31, 31 + 31)
         y = results_flat[0]['finalb1']['median']
-        fig, ax = plt.subplots(figsize=(5, 6))
+        fig, ax = plt.subplots(figsize=(4, 3))
         ax.plot(x, y, label='Final b1', color='darkgreen')
         ax.axvline(0, color='grey', linestyle='--')
         ax.set_xlim(-31, 31)
@@ -323,7 +323,7 @@ with col2:
         # 右邊畫圖
         x = np.linspace(-31, 31, 31 + 31)
         y = results_flat[0]['finalb2']['median']
-        fig, ax = plt.subplots(figsize=(5, 6))
+        fig, ax = plt.subplots(figsize=(4, 3))
         ax.plot(x, y, label='Final b2', color='darkblue')
         ax.axvline(0, color='grey', linestyle='--')
         ax.set_xlim(-31, 31)
