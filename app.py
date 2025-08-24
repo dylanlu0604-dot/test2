@@ -365,11 +365,32 @@ with col2:
         st.pyplot(fig, use_container_width=True)
 
 
-# ===== Plot by series_ids_text: Levels & YoY =====
+# ===== Plot by series_ids_text: Levels & YoY (interactive, draggable/zoomable) =====
 st.divider()
-st.subheader("Each breath series: Levels (rolling mean ±σ) and YoY")
+st.subheader("Each breath series: Levels (rolling mean ±σ) and YoY (interactive)")
 
+import plotly.graph_objects as go  # add this near your imports if not already there
 sigma_levels = [0.5, 1.0, 1.5, 2.0]
+
+def _add_common_xaxis(fig: go.Figure):
+    fig.update_xaxes(
+        rangeslider_visible=True,
+        rangeselector=dict(
+            buttons=[
+                dict(count=1, label="1Y", step="year", stepmode="backward"),
+                dict(count=3, label="3Y", step="year", stepmode="backward"),
+                dict(count=5, label="5Y", step="year", stepmode="backward"),
+                dict(count=10, label="10Y", step="year", stepmode="backward"),
+                dict(step="all", label="All"),
+            ]
+        ),
+    )
+    fig.update_layout(
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        margin=dict(l=40, r=20, t=50, b=40),
+    )
+    return fig
 
 for sid in series_ids:
     # Fetch data (use series id as column name)
@@ -383,48 +404,55 @@ for sid in series_ids:
     with st.expander(f"Series {sid}", expanded=False):
         colA, colB = st.columns(2)
 
-        # ---- A) Levels chart (rolling mean ±σ) ----
+        # ---- A) Levels chart (rolling mean ±σ), interactive ----
         with colA:
             roll_mean = s.rolling(winrolling_value).mean()
             roll_std  = s.rolling(winrolling_value).std()
 
-            fig1, ax1 = plt.subplots(figsize=(8, 4))
-            ax1.plot(s.index, s.values, label="Level", linewidth=1.2)
-            ax1.plot(roll_mean.index, roll_mean.values, label="Mean", linewidth=1.0)
+            fig1 = go.Figure()
+            fig1.add_trace(go.Scatter(x=s.index,        y=s.values,        name="Level", mode="lines"))
+            fig1.add_trace(go.Scatter(x=roll_mean.index,y=roll_mean.values,name="Mean",  mode="lines"))
 
             for m in sigma_levels:
                 upper = roll_mean + m * roll_std
                 lower = roll_mean - m * roll_std
-                ax1.plot(upper.index, upper.values, label=f"+{m}σ", linewidth=0.9, alpha=0.9)
-                ax1.plot(lower.index, lower.values, label=f"-{m}σ", linewidth=0.9, alpha=0.9)
+                fig1.add_trace(go.Scatter(x=upper.index, y=upper.values, name=f"+{m}σ", mode="lines",
+                                          line=dict(dash="dot")))
+                fig1.add_trace(go.Scatter(x=lower.index, y=lower.values, name=f"-{m}σ", mode="lines",
+                                          line=dict(dash="dot")))
 
-            ax1.set_title(f"{sid} | {winrolling_value}-period rolling mean ±σ")
-            ax1.set_xlabel("Date")
-            ax1.set_ylabel("Level")
-            ax1.grid(True, alpha=0.2)
-            ax1.legend(ncol=3, fontsize=8)
-            st.pyplot(fig1, use_container_width=True)
+            fig1.update_layout(
+                title=f"{sid} | {winrolling_value}-period rolling mean ±σ",
+                xaxis_title="Date", yaxis_title="Level"
+            )
+            _add_common_xaxis(fig1)
+            st.plotly_chart(fig1, use_container_width=True, config={"scrollZoom": True})
 
-        # ---- B) YoY chart (rolling mean ±σ) ----
+        # ---- B) YoY chart (rolling mean ±σ), interactive ----
         with colB:
-            yoy = s.pct_change(12) * 100.0              # YoY percentage
+            yoy = s.pct_change(12) * 100.0
             yoy_mean = yoy.rolling(winrolling_value).mean()
             yoy_std  = yoy.rolling(winrolling_value).std()
 
-            fig2, ax2 = plt.subplots(figsize=(8, 4))
-            ax2.plot(yoy.index, yoy.values, label="YoY (%)", linewidth=1.2)
-            ax2.plot(yoy_mean.index, yoy_mean.values, label="Mean", linewidth=1.0)
-            ax2.axhline(0, linestyle="--", linewidth=0.8, alpha=0.6)
+            fig2 = go.Figure()
+            fig2.add_trace(go.Scatter(x=yoy.index,        y=yoy.values,        name="YoY (%)", mode="lines"))
+            fig2.add_trace(go.Scatter(x=yoy_mean.index,   y=yoy_mean.values,   name="Mean",    mode="lines"))
 
             for m in sigma_levels:
                 upper = yoy_mean + m * yoy_std
                 lower = yoy_mean - m * yoy_std
-                ax2.plot(upper.index, upper.values, label=f"+{m}σ", linewidth=0.9, alpha=0.9)
-                ax2.plot(lower.index, lower.values, label=f"-{m}σ", linewidth=0.9, alpha=0.9)
+                fig2.add_trace(go.Scatter(x=upper.index, y=upper.values, name=f"+{m}σ", mode="lines",
+                                          line=dict(dash="dot")))
+                fig2.add_trace(go.Scatter(x=lower.index, y=lower.values, name=f"-{m}σ", mode="lines",
+                                          line=dict(dash="dot")))
 
-            ax2.set_title(f"{sid} | YoY (%) with {winrolling_value}-period rolling mean ±σ")
-            ax2.set_xlabel("Date")
-            ax2.set_ylabel("YoY (%)")
-            ax2.grid(True, alpha=0.2)
-            ax2.legend(ncol=3, fontsize=8)
-            st.pyplot(fig2, use_container_width=True)
+            # zero line
+            fig2.add_hline(y=0, line_dash="dash", line_width=1)
+
+            fig2.update_layout(
+                title=f"{sid} | YoY (%) with {winrolling_value}-period rolling mean ±σ",
+                xaxis_title="Date", yaxis_title="YoY (%)"
+            )
+            _add_common_xaxis(fig2)
+            st.plotly_chart(fig2, use_container_width=True, config={"scrollZoom": True})
+
