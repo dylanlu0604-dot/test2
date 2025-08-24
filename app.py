@@ -363,3 +363,55 @@ with col2:
         ax.set_xlabel('Months')
         ax.set_ylabel('Index')
         st.pyplot(fig, use_container_width=True)
+
+
+# ===== 最後加一張：target 的滾動均值 ±σ 帶 =====
+st.subheader("Target 與滾動均值 ±σ 帶")
+
+# 選要畫的 target：優先畫 index(assetid)，若沒填就畫第一個 breath series
+if assetid and assetid > 0:
+    target_id = int(assetid)
+    target_name = "index"
+elif series_ids:
+    target_id = int(series_ids[0])
+    target_name = "breath"
+else:
+    target_id = None
+    target_name = "target"
+
+if target_id is not None:
+    df_target = mm(target_id, "MS", target_name, k)  # 注意：mm 需要 k
+    if df_target is not None and not df_target.empty:
+        s = df_target.iloc[:, 0].astype(float)  # 轉成 Series 方便 rolling
+
+        roll_mean = s.rolling(winrolling_value).mean()
+        roll_std  = s.rolling(winrolling_value).std()
+
+        # 建立 ±σ 各條帶
+        bands = {
+            "均值": roll_mean,
+            "+0.5σ": roll_mean + 0.5 * roll_std,
+            "+1σ":   roll_mean + 1.0 * roll_std,
+            "+1.5σ": roll_mean + 1.5 * roll_std,
+            "+2σ":   roll_mean + 2.0 * roll_std,
+            "-0.5σ": roll_mean - 0.5 * roll_std,
+            "-1σ":   roll_mean - 1.0 * roll_std,
+            "-1.5σ": roll_mean - 1.5 * roll_std,
+            "-2σ":   roll_mean - 2.0 * roll_std,
+        }
+
+        fig, ax = plt.subplots(figsize=(8, 4))
+        ax.plot(s.index, s.values, label=f"{target_name} 原始", linewidth=1.2)
+        for label, ser in bands.items():
+            ax.plot(ser.index, ser.values, label=label, linewidth=0.9, alpha=0.9)
+
+        ax.set_title(f"{target_name}：{winrolling_value}期滾動均值 ±σ 帶")
+        ax.set_xlabel("Date")
+        ax.set_ylabel(target_name)
+        ax.legend(ncol=3, fontsize=8)
+        ax.grid(True, alpha=0.2)
+        st.pyplot(fig, use_container_width=True)
+    else:
+        st.info("目標序列沒有資料，無法繪圖。")
+else:
+    st.info("請先設定 assetid 或 breath series。")
