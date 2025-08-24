@@ -276,6 +276,13 @@ st.subheader("原始值版本")
 
 resulttable1_list = [r['resulttable1'] for r in results_flat if r.get('resulttable1') is not None]
 
+
+effectivepart1 = 'yes' if resulttable1_list[0]['-12d'][-1] * resulttable1_list[0]['-12d'][-1] > 0 and len(resulttable1_list[0]) > 10 else 'no'
+
+
+st.subheader(effectivepart1)
+
+
 # 並排：左表右圖
 col1, col2 = st.columns([1, 1])
 
