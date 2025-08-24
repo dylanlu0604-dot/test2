@@ -281,11 +281,21 @@ resulttable1_list = [r['resulttable1'] for r in results_flat if r.get('resulttab
 
 df = resulttable1_list[0]  # 或換成 resulttable1_list[0] 做 part1
 
-pre   = float(df.loc['median', '-12d']) - 100
-after = float(df.loc['median', '12d'])  - 100
-times = len(df) - 2  # 扣掉 勝率 + median
+WIN_RATE_LABEL = "勝率"  # 你前面已改成英文標籤就用這個
 
-effectivepart1 = '為有效訊號' if (pre - 1) * (after - 1) > 0 and times > 10 else '不是有效訊號'
+# df 為某個 resulttable（例如 resulttable2_list[0]）
+pre    = float(df.loc['median', '-12d']) - 100
+after  = float(df.loc['median', '12d'])  - 100
+prewin = float(df.loc[WIN_RATE_LABEL, '-12d'])     # 勝率是百分比，別再減 100
+afterwin = float(df.loc[WIN_RATE_LABEL, '12d'])    # 也不要減 10
+
+times = len(df) - 2  # 扣掉 Win rate + median 兩列
+
+effectivepart1 = (
+    '為有效訊號'
+    if ((pre - 1) * (after - 1) > 0) and (times > 10) and ((prewin + afterwin > 140) or (prewin + afterwin < 60))
+    else '不是有效訊號'
+)
 
 
 
@@ -331,11 +341,24 @@ resulttable2_list = [r['resulttable2'] for r in results_flat if r.get('resulttab
 
 df = resulttable2_list[0]  # 或換成 resulttable1_list[0] 做 part1
 
-pre   = float(df.loc['median', '-12d']) - 100
-after = float(df.loc['median', '12d'])  - 100
-times = len(df) - 2  # 扣掉 勝率 + median
 
-effectivepart2 = '為有效訊號' if (pre - 1) * (after - 1) > 0 and times > 10 else '不是有效訊號'
+WIN_RATE_LABEL = "勝率"  # 你前面已改成英文標籤就用這個
+
+# df 為某個 resulttable（例如 resulttable2_list[0]）
+pre    = float(df.loc['median', '-12d']) - 100
+after  = float(df.loc['median', '12d'])  - 100
+prewin = float(df.loc[WIN_RATE_LABEL, '-12d'])     # 勝率是百分比，別再減 100
+afterwin = float(df.loc[WIN_RATE_LABEL, '12d'])    # 也不要減 10
+
+times = len(df) - 2  # 扣掉 Win rate + median 兩列
+
+effectivepart2 = (
+    '為有效訊號'
+    if ((pre - 1) * (after - 1) > 0) and (times > 10) and ((prewin + afterwin > 140) or (prewin + afterwin < 60))
+    else '不是有效訊號'
+)
+
+
 
 
 st.subheader(effectivepart2)
