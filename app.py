@@ -39,12 +39,16 @@ with st.sidebar:
 
     # 單選的 std 和 rolling 視窗（這些值在兩段分析中共用）
     std_choices = [0.5, 1.0, 1.5, 2.0]
-    std_value = st.selectbox("選擇 std 值", options=std_choices, index=1)
+    std_value = st.selectbox("標準差門檻", options=std_choices, index=1)
 
     roll_choices = [6, 12, 24, 36, 48]
-    winrolling_value = st.selectbox("選擇 Rolling 視窗（月）", options=roll_choices, index=1)
+    winrolling_value = st.selectbox("滾動期數", options=roll_choices, index=1)
 
     months_gap_threshold = st.number_input("事件間隔（至少幾個月）", min_value=1, max_value=36, value=6)
+
+
+
+
 
 # ---------------------- Helpers ------------------------
 OFFSETS = [-12, -6, 0, 6, 12]  # 以「月」為單位
@@ -264,7 +268,8 @@ if not results_flat:
 # 主表：統計結果
 summary_df = pd.DataFrame([{k: v for k, v in r.items() if 'resulttable' not in k and 'finalb' not in k} for r in results_flat])
 
-
+summary_df.columns = ['數據ID','標準差門檻','滾動期數','條件觸發前報酬','條件觸發前勝率','條件觸發後報酬','條件觸發後勝率','條件觸發次數','該訊號否有效']+
+ ['條件觸發前報酬(yoy版本)','條件觸發前勝率(yoy版本)','條件觸發後報酬(yoy版本)','條件觸發後勝率(yoy版本)','條件觸發次數(yoy版本)','該訊號否有效(yoy版本)']
 sdfcol = summary_df.columns
 
 # a: 選擇前8列
@@ -277,6 +282,10 @@ b = sdfcol[0:3].tolist() + sdfcol[9:15].tolist()
 st.subheader("匯總結果（Summary）")
 st.dataframe(summary_df[a])
 st.dataframe(summary_df[b])
+
+
+
+st.divider()
 
 
 # ===== 第一段分析：原始 breath =====
