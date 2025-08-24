@@ -283,41 +283,54 @@ st.dataframe(summary_df[b])
 st.subheader("原始值版本")
 resulttable1_list = [r['resulttable1'] for r in results_flat if r.get('resulttable1') is not None]
 
+# 並排：左表右圖
+col1, col2 = st.columns([1, 1])
 
+with col1:
+    if resulttable1_list:
+        st.dataframe(resulttable1_list[0])  # 左邊顯示表格
 
-if resulttable1_list:
-    st.write(resulttable1_list[0])
-
-# 繪圖
-if results_flat[0].get('finalb1') is not None:
-    st.write("Plotting finalb1 median")
-    plt.figure(figsize=(5, 6))
-    x = np.linspace(-31, 31, 31 + 31)
-    y = results_flat[0]['finalb1']['median']
-    plt.plot(x, y, label='Final b1', color='darkgreen')
-    plt.axvline(x=0, color='grey', linestyle='--')
-    plt.xlim(-31, 31)
-    plt.ylim(bottom=min(y)*0.99, top=max(y)*1.01)
-    plt.xlabel('Months')
-    plt.ylabel('Index')
-    st.pyplot(plt)
+with col2:
+    if results_flat and results_flat[0].get('finalb1') is not None:
+        # 右邊畫圖
+        x = np.linspace(-31, 31, 31 + 31)
+        y = results_flat[0]['finalb1']['median']
+        fig, ax = plt.subplots(figsize=(5, 6))
+        ax.plot(x, y, label='Final b1', color='darkgreen')
+        ax.axvline(0, color='grey', linestyle='--')
+        ax.set_xlim(-31, 31)
+        ax.set_ylim(
+            bottom=float(np.min(y) * 0.99),
+            top=float(np.max(y) * 1.01)
+        )
+        ax.set_xlabel('Months')
+        ax.set_ylabel('Index')
+        st.pyplot(fig, use_container_width=True)
 
 # ===== 第二段分析：breath / breath.shift(12) =====
 st.subheader("年增率版本")
-
 resulttable2_list = [r['resulttable2'] for r in results_flat if r.get('resulttable2') is not None]
-if resulttable2_list:
-    st.write(resulttable2_list[0])
 
-# 繪圖
-if results_flat[0].get('finalb2') is not None:
-    st.write("Plotting finalb2 median")
-    plt.figure(figsize=(5, 6))
-    y = results_flat[0]['finalb2']['median']
-    plt.plot(x, y, label='Final b2', color='darkblue')
-    plt.axvline(x=0, color='grey', linestyle='--')
-    plt.xlim(-31, 31)
-    plt.ylim(bottom=min(y)*0.99, top=max(y)*1.01)
-    plt.xlabel('Months')
-    plt.ylabel('Index')
-    st.pyplot(plt)
+# 並排：左表右圖
+col1, col2 = st.columns([1, 1])
+
+with col1:
+    if resulttable2_list:
+        st.dataframe(resulttable2_list[0])  # 左邊顯示表格
+
+with col2:
+    if results_flat and results_flat[0].get('finalb2') is not None:
+        # 右邊畫圖
+        x = np.linspace(-31, 31, 31 + 31)
+        y = results_flat[0]['finalb2']['median']
+        fig, ax = plt.subplots(figsize=(5, 6))
+        ax.plot(x, y, label='Final b2', color='darkblue')
+        ax.axvline(0, color='grey', linestyle='--')
+        ax.set_xlim(-31, 31)
+        ax.set_ylim(
+            bottom=float(np.min(y) * 0.99),
+            top=float(np.max(y) * 1.01)
+        )
+        ax.set_xlabel('Months')
+        ax.set_ylabel('Index')
+        st.pyplot(fig, use_container_width=True)
