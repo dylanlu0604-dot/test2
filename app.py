@@ -276,8 +276,7 @@ st.subheader("原始值版本")
 resulttable1_list = [r['resulttable1'] for r in results_flat if r.get('resulttable1') is not None]
 
 
-effectivepart1 = '為有效訊號' if resulttable1_list[0]['-12d'][-1] * resulttable1_list[0]['-12d'][-1] > 0 and len(resulttable1_list[0]) > 10 else '不是有效訊號' 
-
+effectivepart1 = '為有效訊號' if (resulttable2_list[0]['-12d'][-1]-100) * (resulttable2_list[0]['-12d'][-1]-100) > 0 and len(resulttable2_list[0]) > 10 else '不是有效訊號' 
 
 st.subheader(effectivepart1)
 
@@ -318,7 +317,7 @@ st.subheader("年增率版本")
 resulttable2_list = [r['resulttable2'] for r in results_flat if r.get('resulttable2') is not None]
 
 
-effectivepart2 = '為有效訊號' if resulttable2_list[0]['-12d'][-1] * resulttable2_list[0]['-12d'][-1] > 0 and len(resulttable2_list[0]) > 10 else '不是有效訊號' 
+effectivepart2 = '為有效訊號' if (resulttable2_list[0]['-12d'][-1]-100) * (resulttable2_list[0]['-12d'][-1]-100) > 0 and len(resulttable2_list[0]) > 10 else '不是有效訊號' 
 st.subheader(effectivepart1)
 
 
