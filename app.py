@@ -265,33 +265,15 @@ if not results_flat:
     st.info("尚無可顯示結果。請調整參數或確認 series 有足夠歷史資料。")
     st.stop()
 
-# 主表：統計結果
-summary_df = pd.DataFrame([{k: v for k, v in r.items() if 'resulttable' not in k and 'finalb' not in k} for r in results_flat])
-
-#summary_df.columns = ['數據ID','標準差門檻','滾動期數','條件觸發前報酬','條件觸發前勝率','條件觸發後報酬','條件觸發後勝率','條件觸發次數','該訊號否有效','條件觸發前報酬(yoy版本)','條件觸發前勝率(yoy版本)','條件觸發後報酬(yoy版本)','條件觸發後勝率(yoy版本)','條件觸發次數(yoy版本)','該訊號否有效(yoy版本)']
-
-# a: 選擇前8列
-#a = ['數據ID','標準差門檻','滾動期數','條件觸發前報酬','條件觸發前勝率','條件觸發後報酬','條件觸發後勝率','條件觸發次數','該訊號否有效']
-
-# b: 拼接第0到第2列和第9到第14列
-#b = ['數據ID','標準差門檻','滾動期數','條件觸發前報酬(yoy版本)','條件觸發前勝率(yoy版本)','條件觸發後報酬(yoy版本)','條件觸發後勝率(yoy版本)','條件觸發次數(yoy版本)','該訊號否有效(yoy版本)']
-
-
-# 合併選定的列
-st.subheader("匯總結果（Summary）")
-
-#st.dataframe(summary_df[a])
-
-#st.dataframe(summary_df[b])
-st.dataframe(summary_df)
 
 
 
-st.divider()
 
 
 # ===== 第一段分析：原始 breath =====
 st.subheader("原始值版本")
+
+
 resulttable1_list = [r['resulttable1'] for r in results_flat if r.get('resulttable1') is not None]
 
 # 並排：左表右圖
@@ -300,6 +282,11 @@ col1, col2 = st.columns([1, 1])
 with col1:
     if resulttable1_list:
         st.dataframe(resulttable1_list[0])  # 左邊顯示表格
+
+
+st.subheader(effective1)
+
+
 
 with col2:
     if results_flat and results_flat[0].get('finalb1') is not None:
