@@ -284,7 +284,6 @@ with col1:
         st.dataframe(resulttable1_list[0])  # 左邊顯示表格
 
 
-st.subheader(effective1)
 
 
 
