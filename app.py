@@ -13,69 +13,57 @@ import plotly.graph_objects as go
 import altair as alt
 alt.data_transformers.disable_max_rows()
 
-# ===== Helper function for parsing mapping file (兼容 Py3.8+) =====
+# ===== Helper function for parsing mapping file =====
 @st.cache_data(show_spinner=False)
-def _parse_mapping(file_bytes, ext):
+def _parse_mapping(file_bytes: bytes, ext: str):
     """
     Read ID→name mapping (CSV/XLSX). Returns (series_name_map, asset_name_map, df_preview).
     Recognized column names (case-insensitive):
-      Series ID: ["series_id","變數id","變數ID","Series ID","id","series","指標ID","指標id"]
-      Series Name: ["series_name","變數名稱","變數中文名稱","Series Name","name","中文名稱","名稱","series_cn","series_name_zh"]
-      Asset ID: ["asset_id","研究目標id","研究目標ID","資產ID","asset","target_id","index_id","研究id"]
-      Asset Name: ["asset_name","研究目標名稱","研究目標中文名稱","Asset Name","target_name","index_name","中文名稱","名稱","asset_cn"]
+      Series ID: ["series_id", "變數id", "變數ID", "Series ID", "id", "series", "指標ID", "指標id"]
+      Series Name: ["series_name", "變數名稱", "變數中文名稱", "Series Name", "name", "中文名稱", "名稱", "series_cn", "series_name_zh"]
+      Asset ID: ["asset_id", "研究目標id", "研究目標ID", "資產ID", "asset", "target_id", "index_id", "研究id"]
+      Asset Name: ["asset_name", "研究目標名稱", "研究目標中文名稱", "Asset Name", "target_name", "index_name", "中文名稱", "名稱", "asset_cn"]
     """
     import io
-    frames = []
-    ext = (ext or "").lower()
+    frames: list[pd.DataFrame] = []
+    if ext.lower() == ".csv":
+        frames = [pd.read_csv(io.BytesIO(file_bytes))]
+    else:
+        xls = pd.ExcelFile(io.BytesIO(file_bytes))
+        frames = [xls.parse(s) for s in xls.sheet_names]
 
-    try:
-        if ext == ".csv":
-            frames = [pd.read_csv(io.BytesIO(file_bytes))]
-        else:
-            # 預設當作 Excel
-            try:
-                xls = pd.ExcelFile(io.BytesIO(file_bytes), engine="openpyxl")
-            except ImportError as ie:
-                raise RuntimeError("讀取 .xlsx 需要套件 openpyxl，請先安裝：pip install openpyxl") from ie
-            frames = [xls.parse(s) for s in xls.sheet_names]
-    except Exception as e:
-        # 把上游錯誤往外丟，讓呼叫端統一處理
-        raise
-
-    def pick(df, options):
+    def pick(df: pd.DataFrame, options: list[str]) -> str | None:
         # 精確命中
         for o in options:
             if o in df.columns:
                 return o
         # 不分大小寫命中
-        low = {str(c).lower().strip(): c for c in df.columns}
+        low = {c.lower().strip(): c for c in df.columns}
         for o in options:
-            key = o.lower()
-            if key in low:
-                return low[key]
+            if o.lower() in low:
+                return low[o.lower()]
         return None
 
-    series_map = {}
-    asset_map = {}
-    preview = None
+    series_map: dict[int, str] = {}
+    asset_map: dict[int, str] = {}
+    preview: pd.DataFrame | None = None
 
-    s_id_opts   = ["series_id", "變數id", "變數ID", "Series ID", "id", "series", "指標ID", "指標id"]
+    s_id_opts    = ["series_id", "變數id", "變數ID", "Series ID", "id", "series", "指標ID", "指標id"]
     s_name_opts = ["series_name", "變數名稱", "變數中文名稱", "Series Name", "name", "中文名稱", "名稱", "series_cn", "series_name_zh"]
-    a_id_opts   = ["asset_id", "研究目標id", "研究目標ID", "資產ID", "asset", "target_id", "index_id", "研究id"]
+    a_id_opts    = ["asset_id", "研究目標id", "研究目標ID", "資產ID", "asset", "target_id", "index_id", "研究id"]
     a_name_opts = ["asset_name", "研究目標名稱", "研究目標中文名稱", "Asset Name", "target_name", "index_name", "中文名稱", "名稱", "asset_cn"]
 
     for df in frames:
         if preview is None:
             preview = df.head(10).copy()
-
-        sid   = pick(df, s_id_opts)
+        sid     = pick(df, s_id_opts)
         sname = pick(df, s_name_opts)
-        aid   = pick(df, a_id_opts)
+        aid     = pick(df, a_id_opts)
         aname = pick(df, a_name_opts)
 
-        # 寬鬆推測
+        # 寬鬆規則：若找到一組含 id 與 name/名稱 的欄，就推測對照；含 asset 字樣 → 當 asset 對照
         if not (sid and sname) and not (aid and aname):
-            id_like   = [c for c in df.columns if "id" in str(c).lower()]
+            id_like     = [c for c in df.columns if "id" in str(c).lower()]
             name_like = [c for c in df.columns if ("name" in str(c).lower()) or ("名稱" in str(c)) or ("中文名稱" in str(c))]
             if id_like and name_like:
                 guess_id, guess_name = id_like[0], name_like[0]
@@ -99,61 +87,51 @@ def _parse_mapping(file_bytes, ext):
         preview = pd.DataFrame()
     return series_map, asset_map, preview
 
-
 # ===== 內建 (GitHub) 對照表載入：不透過上傳 =====
-MAP_PATH = st.secrets.get(
-    "ID_NAME_MAP_PATH",
-    os.getenv("ID_NAME_MAP_PATH", "https://github.com/dylanlu0604-dot/test2/blob/main/Idwithname.xlsx")
-)
+MAP_PATH = st.secrets.get("ID_NAME_MAP_PATH", os.getenv("ID_NAME_MAP_PATH", "https://github.com/dylanlu0604-dot/test2/blob/main/Idwithname.xlsx"))
 
 @st.cache_data(show_spinner=False)
-def load_mapping_from_repo(path):
+def load_mapping_from_repo(path: str):
     """
-    Load mapping from local path or URL. If URL is a GitHub blob link,
-    convert it to raw.githubusercontent.com automatically.
-    Returns (series_name_map, asset_name_map, df_preview). On failure returns empty dicts & empty df.
+    Load mapping from a local file path or URL. If the URL is a GitHub blob link,
+    it will be converted to a raw.githubusercontent.com URL automatically.
+    Returns (series_name_map, asset_name_map, df_preview). On failure, returns empty dicts.
     """
-    import io
+    import io, re
     try:
         if isinstance(path, str) and (path.startswith("http://") or path.startswith("https://")):
             url = path
-            # github blob -> raw 轉換
+            # 將 github 的 blob 連結自動轉成 raw
             if "github.com" in url and "raw.githubusercontent.com" not in url:
-                parts = url.split("github.com/")[-1].split("/")
-                if len(parts) >= 5 and parts[2] == "blob":
-                    owner, repo, _, branch = parts[:4]
-                    rest = "/".join(parts[4:])
-                    url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{rest}"
-
+                try:
+                    # 例：https://github.com/owner/repo/blob/branch/dir/file.xlsx
+                    parts = url.split("github.com/")[-1].split("/")
+                    if len(parts) >= 5 and parts[2] == "blob":
+                        owner, repo, _, branch = parts[:4]
+                        rest = "/".join(parts[4:])
+                        url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{rest}"
+                except Exception:
+                    pass
             r = requests.get(url, timeout=30)
             r.raise_for_status()
             file_bytes = r.content
-
-            # 從 URL 推斷副檔名
-            url_no_q = url.split("?")[0]
-            ext = os.path.splitext(url_no_q)[1].lower()
-            if ext not in [".csv", ".xlsx", ".xls"]:
-                # 默認當作 .xlsx（你的檔案就是 .xlsx）
-                ext = ".xlsx"
-
+            # 從 URL 推斷副檔名；若無則當作 csv
+            ext = os.path.splitext(url.split("?")[0])[1] or ".csv"
             series_map, asset_map, df_preview = _parse_mapping(file_bytes, ext)
             return series_map, asset_map, df_preview
-
-        # 本機路徑
-        with open(path, "rb") as f:
-            file_bytes = f.read()
-        ext = os.path.splitext(path)[1].lower()
-        if ext not in [".csv", ".xlsx", ".xls"]:
-            ext = ".xlsx"
-        series_map, asset_map, df_preview = _parse_mapping(file_bytes, ext)
-        return series_map, asset_map, df_preview
-
+        else:
+            with open(path, "rb") as f:
+                file_bytes = f.read()
+            ext = os.path.splitext(path)[1]
+            series_map, asset_map, df_preview = _parse_mapping(file_bytes, ext)
+            return series_map, asset_map, df_preview
     except Exception as e:
         st.warning(
-            "無法下載或讀取：{}。將以數字ID顯示。可用環境變數或 `st.secrets` 的 ID_NAME_MAP_PATH 指定路徑（支援 GitHub blob/raw）。\n詳細錯誤：{}".format(path, e)
+            f"""無法下載或讀取：{path}。將以數字ID顯示。可用環境變數或 `st.secrets` 的 ID_NAME_MAP_PATH 指定路徑（支援 GitHub blob/raw）。
+詳細錯誤：{e}"""
         )
         return {}, {}, pd.DataFrame()
-        
+
 # 全域名稱對照：供整個 App 使用
 series_name_map, asset_name_map, df_preview = load_mapping_from_repo(MAP_PATH)
 
