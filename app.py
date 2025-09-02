@@ -317,7 +317,7 @@ if resulttable1_list:
         if ((pre > 0 and after > 0) or (pre < 0 and after < 0)) and (times > 10) and ((prewin + afterwin > 140) or (prewin + afterwin < 60))
         else '❌ 不是有效訊號'
     )
-    st.markdown(f"### {effectivepart1}")
+    st.markdown(f"#### {effectivepart1}")
 
     # 並排：左表右圖
     col1, col2 = st.columns([1, 1])
@@ -367,7 +367,7 @@ if resulttable2_list:
         if ((pre > 0 and after > 0) or (pre < 0 and after < 0)) and (times > 10) and ((prewin + afterwin > 140) or (prewin + afterwin < 60))
         else '❌ 不是有效訊號'
     )
-    st.markdown(f"### {effectivepart2}")
+    st.markdown(f"#### {effectivepart2}")
 
     # 並排：左表右圖
     col1, col2 = st.columns([1, 1])
