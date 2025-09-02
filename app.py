@@ -13,7 +13,7 @@ import io
 
 # --- Optional parallelism ---
 try:
-    from joblib import Parallel, delayed
+    from joblib import Parallel, delayed
 except Exception:
     Parallel = None
     def delayed(f):
