@@ -35,7 +35,7 @@ def load_series_id_map() -> pd.DataFrame:
         df = pd.read_excel(io.BytesIO(response.content))
         
         # Check for expected columns and handle potential errors
-        required_cols = ['ID', '名稱']
+        required_cols = ['ID', '繁中名稱']
         if not all(col in df.columns for col in required_cols):
             st.error(f"Excel 檔案中缺少必要的欄位。預期欄位：{required_cols}。實際欄位：{df.columns.tolist()}")
             st.stop()
@@ -51,8 +51,8 @@ def load_series_id_map() -> pd.DataFrame:
 # 載入 ID 對應表
 id_name_map = load_series_id_map()
 # 處理 NaN 或空值
-id_name_map = id_name_map.dropna(subset=['ID', '名稱']).astype({'ID': int, '名稱': str})
-series_names = id_name_map['名稱'].tolist()
+id_name_map = id_name_map.dropna(subset=['ID', '繁中名稱']).astype({'ID': int, '繁中名稱': str})
+series_names = id_name_map['繁中名稱'].tolist()
 
 
 with st.sidebar:
@@ -64,7 +64,7 @@ with st.sidebar:
     # 將文字輸入框替換為下拉式選單，顯示中文名稱
     selected_name = st.selectbox("變數ID", options=series_names, index=0)
     # 根據選定的中文名稱找出對應的 ID
-    selected_id = id_name_map[id_name_map['名稱'] == selected_name]['ID'].iloc[0]
+    selected_id = id_name_map[id_name_map['繁中名稱'] == selected_name]['ID'].iloc[0]
 
     assetid = st.number_input("研究目標ID", min_value=0, value=0, step=1)
     api_key = st.text_input(
@@ -494,7 +494,7 @@ if 'selected_name' not in st.session_state:
 
 selected_name = st.session_state.selected_name
 # 根據名稱找到 ID
-sid = id_name_map[id_name_map['名稱'] == selected_name]['ID'].iloc[0]
+sid = id_name_map[id_name_map['繁中名稱'] == selected_name]['ID'].iloc[0]
 
 df_target = mm(int(sid), "MS", f"series_{sid}", k)
 if df_target is None or df_target.empty:
