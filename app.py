@@ -13,69 +13,7 @@ import plotly.graph_objects as go
 import altair as alt
 alt.data_transformers.disable_max_rows()
 
-# ===== 內建 (GitHub) 對照表載入：不透過上傳 =====
-MAP_PATH = st.secrets.get("ID_NAME_MAP_PATH", os.getenv("ID_NAME_MAP_PATH", "https://github.com/dylanlu0604-dot/test2/blob/main/Idwithname.xlsx"))
-
-@st.cache_data(show_spinner=False)
-def load_mapping_from_repo(path: str):
-    """
-    Load mapping from a local file path or URL. If the URL is a GitHub blob link,
-    it will be converted to a raw.githubusercontent.com URL automatically.
-    Returns (series_name_map, asset_name_map, df_preview). On failure, returns empty dicts.
-    """
-    import io, re
-    try:
-        if isinstance(path, str) and (path.startswith("http://") or path.startswith("https://")):
-            url = path
-            # 將 github 的 blob 連結自動轉成 raw
-            if "github.com" in url and "raw.githubusercontent.com" not in url:
-                try:
-                    # 例：https://github.com/owner/repo/blob/branch/dir/file.xlsx
-                    parts = url.split("github.com/")[-1].split("/")
-                    if len(parts) >= 5 and parts[2] == "blob":
-                        owner, repo, _, branch = parts[:4]
-                        rest = "/".join(parts[4:])
-                        url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{rest}"
-                except Exception:
-                    pass
-            r = requests.get(url, timeout=30)
-            r.raise_for_status()
-            file_bytes = r.content
-            # 從 URL 推斷副檔名；若無則當作 csv
-            ext = os.path.splitext(url.split("?")[0])[1] or ".csv"
-            series_map, asset_map, df_preview = _parse_mapping(file_bytes, ext)
-            return series_map, asset_map, df_preview
-        else:
-            with open(path, "rb") as f:
-                file_bytes = f.read()
-            ext = os.path.splitext(path)[1]
-            series_map, asset_map, df_preview = _parse_mapping(file_bytes, ext)
-            return series_map, asset_map, df_preview
-    except Exception as e:
-        st.warning(
-            f"""無法下載或讀取：{path}。將以數字ID顯示。可用環境變數或 `st.secrets` 的 ID_NAME_MAP_PATH 指定路徑（支援 GitHub blob/raw）。
-詳細錯誤：{e}"""
-        )
-        return {}, {}, pd.DataFrame()
-
-# 全域名稱對照：供整個 App 使用
-series_name_map, asset_name_map, df_preview = load_mapping_from_repo(MAP_PATH)
-
-
-# --- Optional parallelism ---
-try:
-    from joblib import Parallel, delayed
-except Exception:
-    Parallel = None
-    def delayed(f):
-        return f
-
-st.set_page_config(page_title="熊市訊號與牛市訊號尋找工具", layout="wide")
-
-# -------------------------- Helpers --------------------------
-OFFSETS = [-12, -6, 0, 6, 12]
-sigma_levels = [0.5, 1.0, 1.5, 2.0]
-
+# ===== Helper function for parsing mapping file =====
 @st.cache_data(show_spinner=False)
 def _parse_mapping(file_bytes: bytes, ext: str):
     """
@@ -148,8 +86,70 @@ def _parse_mapping(file_bytes: bytes, ext: str):
     if preview is None:
         preview = pd.DataFrame()
     return series_map, asset_map, preview
-    # The following code block is duplicated and commented out.
-    # I have removed this.
+
+# ===== 內建 (GitHub) 對照表載入：不透過上傳 =====
+MAP_PATH = st.secrets.get("ID_NAME_MAP_PATH", os.getenv("ID_NAME_MAP_PATH", "https://github.com/dylanlu0604-dot/test2/blob/main/Idwithname.xlsx"))
+
+@st.cache_data(show_spinner=False)
+def load_mapping_from_repo(path: str):
+    """
+    Load mapping from a local file path or URL. If the URL is a GitHub blob link,
+    it will be converted to a raw.githubusercontent.com URL automatically.
+    Returns (series_name_map, asset_name_map, df_preview). On failure, returns empty dicts.
+    """
+    import io, re
+    try:
+        if isinstance(path, str) and (path.startswith("http://") or path.startswith("https://")):
+            url = path
+            # 將 github 的 blob 連結自動轉成 raw
+            if "github.com" in url and "raw.githubusercontent.com" not in url:
+                try:
+                    # 例：https://github.com/owner/repo/blob/branch/dir/file.xlsx
+                    parts = url.split("github.com/")[-1].split("/")
+                    if len(parts) >= 5 and parts[2] == "blob":
+                        owner, repo, _, branch = parts[:4]
+                        rest = "/".join(parts[4:])
+                        url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{rest}"
+                except Exception:
+                    pass
+            r = requests.get(url, timeout=30)
+            r.raise_for_status()
+            file_bytes = r.content
+            # 從 URL 推斷副檔名；若無則當作 csv
+            ext = os.path.splitext(url.split("?")[0])[1] or ".csv"
+            series_map, asset_map, df_preview = _parse_mapping(file_bytes, ext)
+            return series_map, asset_map, df_preview
+        else:
+            with open(path, "rb") as f:
+                file_bytes = f.read()
+            ext = os.path.splitext(path)[1]
+            series_map, asset_map, df_preview = _parse_mapping(file_bytes, ext)
+            return series_map, asset_map, df_preview
+    except Exception as e:
+        st.warning(
+            f"""無法下載或讀取：{path}。將以數字ID顯示。可用環境變數或 `st.secrets` 的 ID_NAME_MAP_PATH 指定路徑（支援 GitHub blob/raw）。
+詳細錯誤：{e}"""
+        )
+        return {}, {}, pd.DataFrame()
+
+# 全域名稱對照：供整個 App 使用
+series_name_map, asset_name_map, df_preview = load_mapping_from_repo(MAP_PATH)
+
+
+# --- Optional parallelism ---
+try:
+    from joblib import Parallel, delayed
+except Exception:
+    Parallel = None
+    def delayed(f):
+        return f
+
+st.set_page_config(page_title="熊市訊號與牛市訊號尋找工具", layout="wide")
+
+# -------------------------- Helpers --------------------------
+OFFSETS = [-12, -6, 0, 6, 12]
+sigma_levels = [0.5, 1.0, 1.5, 2.0]
+
 
 def _need_api_key() -> str:
     k = (
