@@ -146,7 +146,7 @@ def _parse_mapping(file_bytes: bytes, ext: str):
         preview = pd.DataFrame()
     return series_map, asset_map, preview
     # The following code block is duplicated and commented out.
-    # To fix this, I will remove it.
+    # I have removed this.
 
 def _need_api_key() -> str:
     k = (
