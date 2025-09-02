@@ -492,10 +492,7 @@ def yoy_chart_with_brush(s: pd.Series, sid: int, name: str):
     return alt.vconcat(upper + zero_line, lower).resolve_scale(y="independent")
 
 # 獲取選定的系列名稱
-if 'selected_variable_name' not in st.session_state:
-    st.session_state.selected_variable_name = series_names[0]
-
-selected_variable_name = st.session_state.selected_variable_name
+selected_variable_name = selected_variable_name
 # 根據名稱找到 ID
 sid = id_name_map[id_name_map['繁中名稱'] == selected_variable_name]['ID'].iloc[0]
 
