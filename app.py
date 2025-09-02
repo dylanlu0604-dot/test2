@@ -9,6 +9,29 @@ from datetime import datetime
 from joblib import Parallel, delayed
 import multiprocessing
 import plotly.graph_objects as go
+import altair as alt
+alt.data_transformers.disable_max_rows()
+
+# ===== 內建 (GitHub) 對照表載入：不透過上傳 =====
+MAP_PATH = os.getenv("ID_NAME_MAP_PATH", "data/id_name_map.xlsx")  # 預設讀取 repo 內的檔案
+
+@st.cache_data(show_spinner=False)
+def load_mapping_from_repo(path: str):
+    """從 repo 內建檔案載入 ID→中文名對照表，支援 CSV / Excel。
+    回傳 (series_name_map, asset_name_map, df_preview)。找不到/失敗則回傳空字典。"""
+    import io
+    try:
+        with open(path, "rb") as f:
+            file_bytes = f.read()
+        ext = os.path.splitext(path)[1]
+        series_map, asset_map, df_preview = _parse_mapping(file_bytes, ext)
+        return series_map, asset_map, df_preview
+    except Exception as e:
+        return {}, {}, pd.DataFrame()
+
+# 全域名稱對照：供整個 App 使用
+series_name_map, asset_name_map, df_preview = load_mapping_from_repo(MAP_PATH)
+
 
 # --- Optional parallelism ---
 try:
@@ -20,41 +43,69 @@ except Exception:
 
 st.set_page_config(page_title="熊市訊號與牛市訊號尋找工具", layout="wide")
 
-# -------------------------- UI --------------------------
-st.title("熊市訊號與牛市訊號尋找工具")
-
-with st.sidebar:
-    st.header("資料來源與參數設定")
-    
-    # 觸發邏輯選擇：Greater / Smaller
-    trigger_mode = st.radio("觸發邏輯", ["Greater", "Smaller"], horizontal=True)
-
-    series_ids_text = st.text_input("變數ID", "10000")
-    assetid = st.number_input("研究目標ID", min_value=0, value=0, step=1)
-    api_key = st.text_input(
-        "MacroMicro API Key（留空則使用 st.secrets 或環境變數）",
-        value=st.secrets.get("MACROMICRO_API_KEY", os.environ.get("MACROMICRO_API_KEY", "")),
-        type="password"
-    )
-
-    # 單選的 std 和 rolling 視窗（這些值在兩段分析中共用）
-    std_choices = [0.5, 1.0, 1.5, 2.0]
-    std_value = st.selectbox("標準差門檻", options=std_choices, index=1)
-
-    roll_choices = [6, 12, 24, 36, 60,120]
-    winrolling_value = st.selectbox("滾動期數", options=roll_choices, index=1)
-
-    months_gap_threshold = st.number_input("事件間隔（至少幾個月）", min_value=1, max_value=36, value=6)
-
-
-
-
-
-# ---------------------- Helpers ------------------------
+# -------------------------- Helpers --------------------------
 OFFSETS = [-12, -6, 0, 6, 12]  # 以「月」為單位
+sigma_levels = [0.5, 1.0, 1.5, 2.0]
+
+@st.cache_data(show_spinner=False)
+def _parse_mapping(file_bytes: bytes, ext: str):
+    """讀取使用者上傳的ID→中文名稱對照表（支援 CSV / XLSX）。
+    回傳 (series_name_map, asset_name_map, df_preview)
+    可辨識的欄名（不分大小寫）：
+      變數ID: ["series_id", "變數id", "變數ID", "Series ID"]
+      變數名稱: ["series_name", "變數名稱", "變數中文名稱", "Series Name"]
+      研究目標ID: ["asset_id", "研究目標id", "研究目標ID", "資產ID"]
+      研究目標名稱: ["asset_name", "研究目標名稱", "研究目標中文名稱", "Asset Name"]
+    """
+    import io
+    if ext.lower() in (".csv",):
+        df = pd.read_csv(io.BytesIO(file_bytes))
+    else:
+        df = pd.read_excel(io.BytesIO(file_bytes))
+
+    def match_col(options: list[str]) -> str | None:
+        # 先精確比對
+        for opt in options:
+            if opt in df.columns:
+                return opt
+        # 再用不分大小寫比對
+        low = {c.lower(): c for c in df.columns}
+        for opt in options:
+            if opt.lower() in low:
+                return low[opt.lower()]
+        return None
+
+    s_id_col   = match_col(["series_id", "變數id", "變數ID", "Series ID"]) 
+    s_name_col = match_col(["series_name", "變數名稱", "變數中文名稱", "Series Name"]) 
+    a_id_col   = match_col(["asset_id", "研究目標id", "研究目標ID", "資產ID"]) 
+    a_name_col = match_col(["asset_name", "研究目標名稱", "研究目標中文名稱", "Asset Name"]) 
+
+    series_map: dict[int, str] = {}
+    asset_map: dict[int, str] = {}
+
+    if s_id_col and s_name_col:
+        try:
+            series_map = {int(k): str(v) for k, v in zip(df[s_id_col], df[s_name_col]) if pd.notna(k) and pd.notna(v)}
+        except Exception:
+            pass
+    if a_id_col and a_name_col:
+        try:
+            asset_map = {int(k): str(v) for k, v in zip(df[a_id_col], df[a_name_col]) if pd.notna(k) and pd.notna(v)}
+        except Exception:
+            pass
+
+    # 預覽欄位（不改原始 df）
+    preview_cols = [c for c in [s_id_col, s_name_col, a_id_col, a_name_col] if c]
+    df_preview = df[preview_cols].head(10) if preview_cols else df.head(5)
+    return series_map, asset_map, df_preview
+
 
 def _need_api_key() -> str:
-    k = api_key or st.secrets.get("MACROMICRO_API_KEY", "") or os.environ.get("MACROMICRO_API_KEY", "")
+    k = (
+        st.session_state.get("__api_key__")
+        or st.secrets.get("MACROMICRO_API_KEY", "")
+        or os.environ.get("MACROMICRO_API_KEY", "")
+    )
     if not k:
         st.error("缺少 MacroMicro API Key。請在側邊欄輸入或於 .streamlit/secrets.toml 設定。")
         st.stop()
@@ -80,8 +131,10 @@ def mm(series_id: int, frequency: str, name: str, k: str) -> pd.DataFrame | None
             time.sleep(1)
     return None
 
+
 def find_row_number_for_date(df_obj: pd.DataFrame, specific_date: pd.Timestamp) -> int:
     return df_obj.index.get_loc(pd.Timestamp(specific_date))
+
 
 def _condition(df: pd.DataFrame, std: float, winrolling: int, mode: str) -> pd.Series:
     """
@@ -94,12 +147,22 @@ def _condition(df: pd.DataFrame, std: float, winrolling: int, mode: str) -> pd.S
     else:
         return df["breath"].rolling(6).min() < df["Rolling_mean"] - std * df["Rolling_std"]
 
-# 主分析（保留你的原流程，只把條件改為可切換）
-def process_series(series_id: int, std_value: float, winrolling_value: int, k: str, mode: str) -> list[dict]:
+
+def resolve_name(id_int: int, name_map: dict[int, str]) -> str:
+    return name_map.get(int(id_int), str(int(id_int)))
+
+
+# 主分析（保留原流程，新增名稱資訊在結果中）
+def process_series(series_id: int, std_value: float, winrolling_value: int, k: str, mode: str,
+                   series_name_map: dict[int, str], asset_name_map: dict[int, str], assetid: int) -> list[dict]:
     results: list[dict] = []
     try:
         x1, code1 = "breath", series_id
         x2, code2 = "index", assetid
+
+        # 解析中文名稱（僅用於顯示，不影響運算欄位名）
+        series_label = resolve_name(code1, series_name_map)
+        asset_label  = resolve_name(code2, asset_name_map)
 
         df1 = mm(code1, "MS", x1, k)
         df2 = mm(code2, "MS", x2, k)
@@ -111,7 +174,7 @@ def process_series(series_id: int, std_value: float, winrolling_value: int, k: s
 
         alldf = alldf_original.copy()
         timeforward, timepast = 31, 31  # 定義 timepast 和 timeforward
-        months_threshold = months_gap_threshold
+        months_threshold = st.session_state.get("months_gap_threshold", 6)
 
         # ===== 第一段分析：原始 breath =====
         df = alldf[[x1, x2]].copy()
@@ -152,7 +215,7 @@ def process_series(series_id: int, std_value: float, winrolling_value: int, k: s
 
                 offsets = [-12, -6, 0, 6, 12]
                 table1 = pd.concat([finalb1.iloc[timepast + off] for off in offsets], axis=1)
-                table1.columns = [f"{off}d" for off in offsets]  # 仍沿用 d 命名
+                table1.columns = [f"{off}d" for off in offsets]  # 沿用 d 命名
                 resulttable1 = table1.iloc[:-1]
                 perc_df = pd.DataFrame([(resulttable1 > 100).mean() * 100], index=["勝率"])
                 resulttable1 = pd.concat([resulttable1, perc_df, table1.iloc[-1:]])
@@ -219,7 +282,11 @@ def process_series(series_id: int, std_value: float, winrolling_value: int, k: s
                 effective2 = "yes" if (pre2 - 1) * (after2 - 1) > 0 and times2 > 10 else "no"
 
         results.append({
-            "series_id": series_id, "std": std_value, "winrolling": winrolling_value,
+            "series_id": series_id,
+            "series_label": series_label,
+            "asset_label": asset_label,
+            "std": std_value,
+            "winrolling": winrolling_value,
             "pre1": pre1, "prewin1": prewin1, "after1": after1, "afterwin1": afterwin1,
             "times1": times1, "effective1": effective1,
             "pre2": pre2, "prewin2": prewin2, "after2": after2, "afterwin2": afterwin2,
@@ -235,8 +302,57 @@ def process_series(series_id: int, std_value: float, winrolling_value: int, k: s
     return results
 
 
-# ---------------------- Main Flow ----------------------
+# -------------------------- UI --------------------------
+st.title("熊市訊號與牛市訊號尋找工具")
 
+with st.sidebar:
+    st.header("資料來源與參數設定")
+
+    # 讀取 repo 內建對照表（不需上傳）
+if series_name_map or asset_name_map:
+    st.success(f"已載入對照表：變數 {len(series_name_map)} 筆、研究目標 {len(asset_name_map)} 筆。來源：{MAP_PATH}")
+    with st.expander("對照表預覽（前10列）", expanded=False):
+        st.dataframe(df_preview if not df_preview.empty else pd.DataFrame({"提示": ["對照表內容為空"]}))
+else:
+    st.info(f"找不到對照表檔案：{MAP_PATH}，將以數字ID顯示。可透過環境變數 ID_NAME_MAP_PATH 指定路徑。")
+# 觸發邏輯選擇：Greater / Smaller
+    trigger_mode = st.radio("觸發邏輯", ["Greater", "Smaller"], horizontal=True)
+
+    series_ids_text = st.text_input("變數ID（逗號分隔）", "10000")
+
+    assetid = st.number_input("研究目標ID", min_value=0, value=0, step=1)
+    # 顯示對應名稱（若未提供對照表或查無，則顯示原始數字）
+    try:
+        if series_ids_text.strip():
+            _sids = [int(s.strip()) for s in series_ids_text.split(",") if s.strip()]
+            series_labels = [series_name_map.get(s, str(s)) for s in _sids]
+            st.caption("變數：" + "、".join(series_labels))
+    except Exception:
+        pass
+    try:
+        st.caption("研究目標：" + asset_name_map.get(int(assetid), str(int(assetid))))
+    except Exception:
+        pass
+
+    api_key = st.text_input(
+        "MacroMicro API Key（留空則使用 st.secrets 或環境變數）",
+        value=st.secrets.get("MACROMICRO_API_KEY", os.environ.get("MACROMICRO_API_KEY", "")),
+        type="password"
+    )
+    # 保存至 session_state 供 _need_api_key() 取用
+    st.session_state["__api_key__"] = api_key
+
+    # 單選的 std 和 rolling 視窗（這些值在兩段分析中共用）
+    std_choices = [0.5, 1.0, 1.5, 2.0]
+    std_value = st.selectbox("標準差門檻", options=std_choices, index=1)
+
+    roll_choices = [6, 12, 24, 36, 60, 120]
+    winrolling_value = st.selectbox("滾動期數", options=roll_choices, index=1)
+
+    months_gap_threshold = st.number_input("事件間隔（至少幾個月）", min_value=1, max_value=36, value=6)
+    st.session_state["months_gap_threshold"] = months_gap_threshold
+
+# ---------------------- Main Flow ----------------------
 try:
     series_ids = [int(s.strip()) for s in series_ids_text.split(",") if s.strip()]
 except Exception:
@@ -252,153 +368,121 @@ k = _need_api_key()
 if Parallel is not None:
     num_cores = max(1, min(4, multiprocessing.cpu_count()))
     results_nested = Parallel(n_jobs=num_cores)(
-        delayed(process_series)(sid, std_value, winrolling_value, k, mode) for sid in series_ids
+        delayed(process_series)(sid, std_value, winrolling_value, k, mode, series_name_map, asset_name_map, int(assetid))
+        for sid in series_ids
     )
     results_flat = [item for sublist in results_nested for item in sublist]
 else:
     st.warning("`joblib` 未安裝，改用單執行緒。")
     results_flat = []
     for sid in series_ids:
-        results_flat.extend(process_series(sid, std_value, winrolling_value, k, mode))
+        results_flat.extend(process_series(sid, std_value, winrolling_value, k, mode, series_name_map, asset_name_map, int(assetid)))
 
 if not results_flat:
     st.info("尚無可顯示結果。請調整參數或確認 series 有足夠歷史資料。")
     st.stop()
 
-
-
-
-
-
 # ===== 第一段分析：原始 breath =====
 st.subheader("原始值版本")
-
+# 顯示選取的名稱（以第一個結果為準）
+try:
+    st.caption(f"變數：{results_flat[0]['series_label']} ｜ 研究目標：{results_flat[0]['asset_label']}")
+except Exception:
+    pass
 
 resulttable1_list = [r['resulttable1'] for r in results_flat if r.get('resulttable1') is not None]
+if not resulttable1_list:
+    st.warning("第一段分析尚無有效表格結果。")
+else:
+    df = resulttable1_list[0]
+    WIN_RATE_LABEL = "勝率"
+    pre    = float(df.loc['median', '-12d']) - 100
+    after  = float(df.loc['median', '12d'])  - 100
+    prewin = float(df.loc[WIN_RATE_LABEL, '-12d'])
+    afterwin = float(df.loc[WIN_RATE_LABEL, '12d'])
+    times = len(df) - 2
+    effectivepart1 = (
+        '為有效訊號'
+        if ((pre - 1) * (after - 1) > 0) and (times > 10) and ((prewin + afterwin > 140) or (prewin + afterwin < 60))
+        else '不是有效訊號'
+    )
+    st.subheader(effectivepart1)
 
-
-
-
-df = resulttable1_list[0]  # 或換成 resulttable1_list[0] 做 part1
-
-WIN_RATE_LABEL = "勝率"  # 你前面已改成英文標籤就用這個
-
-# df 為某個 resulttable（例如 resulttable2_list[0]）
-pre    = float(df.loc['median', '-12d']) - 100
-after  = float(df.loc['median', '12d'])  - 100
-prewin = float(df.loc[WIN_RATE_LABEL, '-12d'])     # 勝率是百分比，別再減 100
-afterwin = float(df.loc[WIN_RATE_LABEL, '12d'])    # 也不要減 10
-
-times = len(df) - 2  # 扣掉 Win rate + median 兩列
-
-effectivepart1 = (
-    '為有效訊號'
-    if ((pre - 1) * (after - 1) > 0) and (times > 10) and ((prewin + afterwin > 140) or (prewin + afterwin < 60))
-    else '不是有效訊號'
-)
-
-
-
-st.subheader(effectivepart1)
-
-
-# 並排：左表右圖
-col1, col2 = st.columns([1, 1])
-
-with col1:
-    if resulttable1_list:
-        st.dataframe(resulttable1_list[0])  # 左邊顯示表格
-
-
-
-
-
-with col2:
-    if results_flat and results_flat[0].get('finalb1') is not None:
-        # 右邊畫圖
-        x = np.linspace(-31, 31, 31 + 31)
-        y = results_flat[0]['finalb1']['median']
-        fig, ax = plt.subplots(figsize=(6, 5))
-        ax.plot(x, y, label='Final b2', color='darkblue')
-        ax.axvline(0, color='grey', linestyle='--')
-        xlim = (-15, 15)
-        ax.set_xlim(xlim)
-        ax.set_ylim(
-            bottom=y[(x >= xlim[0]) & (x <= xlim[1])].min() * 0.99,
-            top=y[(x >= xlim[0]) & (x <= xlim[1])].max() * 1.01)
-        ax.set_xlabel('Months')
-        ax.set_ylabel('Index')
-        st.pyplot(fig, use_container_width=True)
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        st.dataframe(df, use_container_width=True)
+    with col2:
+        first_finalb1 = next((r['finalb1'] for r in results_flat if r.get('finalb1') is not None), None)
+        if first_finalb1 is not None:
+            x = np.linspace(-31, 31, 31 + 31)
+            y = first_finalb1['median']
+            fig, ax = plt.subplots(figsize=(6, 5))
+            ax.plot(x, y, label='事件中位數路徑')
+            ax.axvline(0, color='grey', linestyle='--')
+            xlim = (-15, 15)
+            ax.set_xlim(xlim)
+            ax.set_ylim(
+                bottom=y[(x >= xlim[0]) & (x <= xlim[1])].min() * 0.99,
+                top=y[(x >= xlim[0]) & (x <= xlim[1])].max() * 1.01)
+            ax.set_xlabel('事件相對月份')
+            ax.set_ylabel('指數（=100 為事件月）')
+            ax.legend()
+            st.pyplot(fig, use_container_width=True)
 
 st.divider()
-
 
 # ===== 第二段分析：breath / breath.shift(12) =====
 st.subheader("年增率版本")
+try:
+    st.caption(f"變數：{results_flat[0]['series_label']} ｜ 研究目標：{results_flat[0]['asset_label']}")
+except Exception:
+    pass
+
 resulttable2_list = [r['resulttable2'] for r in results_flat if r.get('resulttable2') is not None]
+if not resulttable2_list:
+    st.warning("第二段分析尚無有效表格結果。")
+else:
+    df2 = resulttable2_list[0]
+    WIN_RATE_LABEL = "勝率"
+    pre    = float(df2.loc['median', '-12d']) - 100
+    after  = float(df2.loc['median', '12d'])  - 100
+    prewin = float(df2.loc[WIN_RATE_LABEL, '-12d'])
+    afterwin = float(df2.loc[WIN_RATE_LABEL, '12d'])
+    times = len(df2) - 2
+    effectivepart2 = (
+        '為有效訊號'
+        if ((pre - 1) * (after - 1) > 0) and (times > 10) and ((prewin + afterwin > 140) or (prewin + afterwin < 60))
+        else '不是有效訊號'
+    )
+    st.subheader(effectivepart2)
 
-
-
-df = resulttable2_list[0]  # 或換成 resulttable1_list[0] 做 part1
-
-
-WIN_RATE_LABEL = "勝率"  # 你前面已改成英文標籤就用這個
-
-# df 為某個 resulttable（例如 resulttable2_list[0]）
-pre    = float(df.loc['median', '-12d']) - 100
-after  = float(df.loc['median', '12d'])  - 100
-prewin = float(df.loc[WIN_RATE_LABEL, '-12d'])     # 勝率是百分比，別再減 100
-afterwin = float(df.loc[WIN_RATE_LABEL, '12d'])    # 也不要減 10
-
-times = len(df) - 2  # 扣掉 Win rate + median 兩列
-
-effectivepart2 = (
-    '為有效訊號'
-    if ((pre - 1) * (after - 1) > 0) and (times > 10) and ((prewin + afterwin > 140) or (prewin + afterwin < 60))
-    else '不是有效訊號'
-)
-
-
-
-
-st.subheader(effectivepart2)
-
-
-# 並排：左表右圖
-col1, col2 = st.columns([1, 1])
-
-with col1:
-    if resulttable2_list:
-        st.dataframe(resulttable2_list[0])  # 左邊顯示表格
-
-with col2:
-    if results_flat and results_flat[0].get('finalb2') is not None:
-        # 右邊畫圖
-        x = np.linspace(-31, 31, 31 + 31)
-        y = results_flat[0]['finalb2']['median']
-        fig, ax = plt.subplots(figsize=(6, 5))
-        ax.plot(x, y, label='Final b2', color='darkblue')
-        ax.axvline(0, color='grey', linestyle='--')
-        xlim = (-15, 15)
-        ax.set_xlim(xlim)
-        ax.set_ylim(
-            bottom=y[(x >= xlim[0]) & (x <= xlim[1])].min() * 0.99,
-            top=y[(x >= xlim[0]) & (x <= xlim[1])].max() * 1.01)
-        ax.set_xlabel('Months')
-        ax.set_ylabel('Index')
-        st.pyplot(fig, use_container_width=True)
-
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        st.dataframe(df2, use_container_width=True)
+    with col2:
+        first_finalb2 = next((r['finalb2'] for r in results_flat if r.get('finalb2') is not None), None)
+        if first_finalb2 is not None:
+            x = np.linspace(-31, 31, 31 + 31)
+            y = first_finalb2['median']
+            fig, ax = plt.subplots(figsize=(6, 5))
+            ax.plot(x, y, label='事件中位數路徑')
+            ax.axvline(0, color='grey', linestyle='--')
+            xlim = (-15, 15)
+            ax.set_xlim(xlim)
+            ax.set_ylim(
+                bottom=y[(x >= xlim[0]) & (x <= xlim[1])].min() * 0.99,
+                top=y[(x >= xlim[0]) & (x <= xlim[1])].max() * 1.01)
+            ax.set_xlabel('事件相對月份')
+            ax.set_ylabel('指數（=100 為事件月）')
+            ax.legend()
+            st.pyplot(fig, use_container_width=True)
 
 # ===== Plot by series_ids_text: Levels & YoY (brush to set x-range; y auto-rescales) =====
 st.divider()
-st.subheader("Each breath series: Levels (rolling mean ±σ) and YoY (brush to set time window)")
+st.subheader("Each 變數：原始值（rolling mean ±σ）與年增率（可框選時間區間）")
 
-import altair as alt
-alt.data_transformers.disable_max_rows()
 
-sigma_levels = [0.5, 1.0, 1.5, 2.0]
-
-def levels_chart_with_brush(s: pd.Series, sid: int):
+def levels_chart_with_brush(s: pd.Series, sid: int, label: str):
     roll_mean = s.rolling(winrolling_value).mean()
     roll_std  = s.rolling(winrolling_value).std()
 
@@ -412,10 +496,7 @@ def levels_chart_with_brush(s: pd.Series, sid: int):
         df_levels[f"+{m}σ"] = (roll_mean + m * roll_std).values
         df_levels[f"-{m}σ"] = (roll_mean - m * roll_std).values
 
-    # melt to long format
     long_levels = df_levels.melt("Date", var_name="Series", value_name="Value").dropna()
-
-    # brush selection on x (time)
     brush = alt.selection_interval(encodings=["x"])
 
     upper = (
@@ -427,8 +508,8 @@ def levels_chart_with_brush(s: pd.Series, sid: int):
             color=alt.Color("Series:N", legend=alt.Legend(orient="top")),
             tooltip=[alt.Tooltip("Date:T"), "Series:N", alt.Tooltip("Value:Q", format=".2f")],
         )
-        .transform_filter(brush)  # filter data by brushed x-range -> y auto-rescales
-        .properties(title=f"{sid} | {winrolling_value}-period rolling mean ±σ", height=320)
+        .transform_filter(brush)
+        .properties(title=f"{label}（ID: {sid}） | {winrolling_value}-period rolling mean ±σ", height=320)
     )
 
     lower = (
@@ -441,7 +522,8 @@ def levels_chart_with_brush(s: pd.Series, sid: int):
 
     return alt.vconcat(upper, lower).resolve_scale(y="independent")
 
-def yoy_chart_with_brush(s: pd.Series, sid: int):
+
+def yoy_chart_with_brush(s: pd.Series, sid: int, label: str):
     yoy = s.pct_change(12) * 100.0
     yoy_mean = yoy.rolling(winrolling_value).mean()
     yoy_std  = yoy.rolling(winrolling_value).std()
@@ -468,8 +550,8 @@ def yoy_chart_with_brush(s: pd.Series, sid: int):
             color=alt.Color("Series:N", legend=alt.Legend(orient="top")),
             tooltip=[alt.Tooltip("Date:T"), "Series:N", alt.Tooltip("Value:Q", format=".2f")],
         )
-        .transform_filter(brush)  # y auto-rescales to brushed x-range
-        .properties(title=f"{sid} | YoY (%) with {winrolling_value}-period rolling mean ±σ", height=320)
+        .transform_filter(brush)
+        .properties(title=f"{label}（ID: {sid}） | YoY (%) with {winrolling_value}-period rolling mean ±σ", height=320)
     )
 
     zero_line = alt.Chart(pd.DataFrame({"y": [0]})).mark_rule(strokeDash=[4,4]).encode(y="y:Q")
@@ -491,11 +573,11 @@ for sid in series_ids:
         continue
 
     s = df_target.iloc[:, 0].astype(float)
+    label = series_name_map.get(int(sid), str(int(sid)))
 
-    with st.expander(f"Series {sid}", expanded=False):
+    with st.expander(f"{label}（ID: {sid}）", expanded=False):
         colA, colB = st.columns(2)
         with colA:
-            st.altair_chart(levels_chart_with_brush(s, sid), use_container_width=True)
+            st.altair_chart(levels_chart_with_brush(s, sid, label), use_container_width=True)
         with colB:
-            st.altair_chart(yoy_chart_with_brush(s, sid), use_container_width=True)
-
+            st.altair_chart(yoy_chart_with_brush(s, sid, label), use_container_width=True)
