@@ -52,7 +52,10 @@ def load_mapping_from_repo(path: str):
             series_map, asset_map, df_preview = _parse_mapping(file_bytes, ext)
             return series_map, asset_map, df_preview
     except Exception as e:
-        st.warning(f"對照表載入失敗：{e}")
+        st.warning(
+            f"""無法下載或讀取：{path}。將以數字ID顯示。可用環境變數或 `st.secrets` 的 ID_NAME_MAP_PATH 指定路徑（支援 GitHub blob/raw）。
+詳細錯誤：{e}"""
+        )
         return {}, {}, pd.DataFrame()
 
 # 全域名稱對照：供整個 App 使用
