@@ -62,11 +62,14 @@ with st.sidebar:
     trigger_mode = st.radio("觸發邏輯", ["Greater", "Smaller"], horizontal=True)
 
     # 將文字輸入框替換為下拉式選單，顯示中文名稱
-    selected_name = st.selectbox("變數ID", options=series_names, index=0)
+    selected_variable_name = st.selectbox("變數ID", options=series_names, index=0)
     # 根據選定的中文名稱找出對應的 ID
-    selected_id = id_name_map[id_name_map['繁中名稱'] == selected_name]['ID'].iloc[0]
+    selected_variable_id = id_name_map[id_name_map['繁中名稱'] == selected_variable_name]['ID'].iloc[0]
 
-    assetid = st.number_input("研究目標ID", min_value=0, value=0, step=1)
+    # 將研究目標ID改為下拉式選單
+    selected_target_name = st.selectbox("研究目標ID", options=series_names, index=0)
+    selected_target_id = id_name_map[id_name_map['繁中名稱'] == selected_target_name]['ID'].iloc[0]
+
     api_key = st.text_input(
         "MacroMicro API Key（留空則使用 st.secrets 或環境變數）",
         value=st.secrets.get("MACROMICRO_API_KEY", os.environ.get("MACROMICRO_API_KEY", "")),
@@ -127,16 +130,16 @@ def _condition(df: pd.DataFrame, std: float, winrolling: int, mode: str) -> pd.S
         return df["breath"].rolling(6).min() < df["Rolling_mean"] - std * df["Rolling_std"]
 
 # 主分析（保留你的原流程，只把條件改為可切換）
-def process_series(series_id: int, std_value: float, winrolling_value: int, k: str, mode: str) -> list[dict]:
+def process_series(variable_id: int, target_id: int, std_value: float, winrolling_value: int, k: str, mode: str) -> list[dict]:
     results: list[dict] = []
     try:
-        x1, code1 = "breath", series_id
-        x2, code2 = "index", assetid
+        x1, code1 = "breath", variable_id
+        x2, code2 = "index", target_id
 
         df1 = mm(code1, "MS", x1, k)
         df2 = mm(code2, "MS", x2, k)
         if df1 is None or df2 is None:
-            st.warning(f"series_id {series_id} 或 assetid {assetid} 取檔失敗。")
+            st.warning(f"series_id {variable_id} 或 target_id {target_id} 取檔失敗。")
             return results
 
         alldf_original = pd.concat([df1, df2], axis=1).resample("MS").asfreq().ffill()
@@ -251,7 +254,7 @@ def process_series(series_id: int, std_value: float, winrolling_value: int, k: s
                 effective2 = "yes" if (pre2 > 0 and after2 > 0) or (pre2 < 0 and after2 < 0) and times2 > 10 else "no"
 
         results.append({
-            "series_id": series_id, "std": std_value, "winrolling": winrolling_value,
+            "series_id": variable_id, "std": std_value, "winrolling": winrolling_value,
             "pre1": pre1, "prewin1": prewin1, "after1": after1, "afterwin1": afterwin1,
             "times1": times1, "effective1": effective1,
             "pre2": pre2, "prewin2": prewin2, "after2": after2, "afterwin2": afterwin2,
@@ -263,13 +266,13 @@ def process_series(series_id: int, std_value: float, winrolling_value: int, k: s
         })
 
     except Exception as e:
-        st.write(f"Error during CALCULATION for series {series_id}: {e}")
+        st.write(f"Error during CALCULATION for series {variable_id}: {e}")
     return results
 
 
 # ---------------------- Main Flow ----------------------
 
-series_ids = [selected_id] # 取得下拉式選單的 ID
+series_ids = [selected_variable_id] # 取得下拉式選單的 ID
 std_value = std_value
 winrolling_value = winrolling_value
 mode = trigger_mode
@@ -279,14 +282,14 @@ k = _need_api_key()
 if Parallel is not None:
     num_cores = max(1, min(4, multiprocessing.cpu_count()))
     results_nested = Parallel(n_jobs=num_cores)(
-        delayed(process_series)(sid, std_value, winrolling_value, k, mode) for sid in series_ids
+        delayed(process_series)(sid, selected_target_id, std_value, winrolling_value, k, mode) for sid in series_ids
     )
     results_flat = [item for sublist in results_nested for item in sublist]
 else:
     st.warning("`joblib` 未安裝，改用單執行緒。")
     results_flat = []
     for sid in series_ids:
-        results_flat.extend(process_series(sid, std_value, winrolling_value, k, mode))
+        results_flat.extend(process_series(sid, selected_target_id, std_value, winrolling_value, k, mode))
 
 if not results_flat:
     st.info("尚無可顯示結果。請調整參數或確認 series 有足夠歷史資料。")
@@ -489,21 +492,21 @@ def yoy_chart_with_brush(s: pd.Series, sid: int, name: str):
     return alt.vconcat(upper + zero_line, lower).resolve_scale(y="independent")
 
 # 獲取選定的系列名稱
-if 'selected_name' not in st.session_state:
-    st.session_state.selected_name = series_names[0]
+if 'selected_variable_name' not in st.session_state:
+    st.session_state.selected_variable_name = series_names[0]
 
-selected_name = st.session_state.selected_name
+selected_variable_name = st.session_state.selected_variable_name
 # 根據名稱找到 ID
-sid = id_name_map[id_name_map['繁中名稱'] == selected_name]['ID'].iloc[0]
+sid = id_name_map[id_name_map['繁中名稱'] == selected_variable_name]['ID'].iloc[0]
 
 df_target = mm(int(sid), "MS", f"series_{sid}", k)
 if df_target is None or df_target.empty:
     st.info(f"No data for series {sid}, skipping.")
 else:
     s = df_target.iloc[:, 0].astype(float)
-    with st.expander(f"Series: {selected_name} ({sid})", expanded=True):
+    with st.expander(f"Series: {selected_variable_name} ({sid})", expanded=True):
         colA, colB = st.columns(2)
         with colA:
-            st.altair_chart(levels_chart_with_brush(s, sid, selected_name), use_container_width=True)
+            st.altair_chart(levels_chart_with_brush(s, sid, selected_variable_name), use_container_width=True)
         with colB:
-            st.altair_chart(yoy_chart_with_brush(s, sid, selected_name), use_container_width=True)
+            st.altair_chart(yoy_chart_with_brush(s, sid, selected_variable_name), use_container_width=True)
