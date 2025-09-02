@@ -13,8 +13,10 @@ import altair as alt
 alt.data_transformers.disable_max_rows()
 
 # ===== 內建 (GitHub) 對照表載入：不透過上傳 =====
-MAP_PATH = os.getenv("ID_NAME_MAP_PATH", "data/id_name_map.xlsx")  # 預設讀取 repo 內的檔案
-
+MAP_PATH = os.getenv(
+    "ID_NAME_MAP_PATH",
+    "https://github.com/dylanlu0604-dot/test2/blob/main/Idwithname.xlsx"  # 你的檔案
+)
 @st.cache_data(show_spinner=False)
 def load_mapping_from_repo(path: str):
     """從 repo 內建檔案載入 ID→中文名對照表，支援 CSV / Excel。
