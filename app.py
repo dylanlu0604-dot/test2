@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import os
 import time
 import numpy as np
@@ -17,10 +18,11 @@ MAP_PATH = st.secrets.get("ID_NAME_MAP_PATH", os.getenv("ID_NAME_MAP_PATH", "htt
 
 @st.cache_data(show_spinner=False)
 def load_mapping_from_repo(path: str):
-    """從 repo 內建檔案或 URL 載入 ID→中文名對照表，支援 CSV / Excel / GitHub 連結。
-    1) 檔案路徑：/app/data/id_name_map.xlsx
-    2) URL：含 http/https；若是 github.com 的 blob 連結會自動轉為 raw.githubusercontent.com
-    回傳 (series_name_map, asset_name_map, df_preview)。失敗則回傳空字典。"""
+    """
+    Load mapping from a local file path or URL. If the URL is a GitHub blob link,
+    it will be converted to a raw.githubusercontent.com URL automatically.
+    Returns (series_name_map, asset_name_map, df_preview). On failure, returns empty dicts.
+    """
     import io, re
     try:
         if isinstance(path, str) and (path.startswith("http://") or path.startswith("https://")):
@@ -73,13 +75,13 @@ sigma_levels = [0.5, 1.0, 1.5, 2.0]
 
 @st.cache_data(show_spinner=False)
 def _parse_mapping(file_bytes: bytes, ext: str):
-    """讀取使用者提供的 ID→中文名稱對照表（支援 CSV / Excel，Excel 會掃描所有工作表）。
-    回傳 (series_name_map, asset_name_map, df_preview)。若僅讀到資料但未辨識欄位，series/asset 會是空字典、df_preview 仍提供前幾列以便除錯。
-    可辨識欄名（不分大小寫）：
-      變數ID: ["series_id", "變數id", "變數ID", "Series ID", "id", "series", "指標ID", "指標id"]
-      變數名稱: ["series_name", "變數名稱", "變數中文名稱", "Series Name", "name", "中文名稱", "名稱", "series_cn", "series_name_zh"]
-      研究目標ID: ["asset_id", "研究目標id", "研究目標ID", "資產ID", "asset", "target_id", "index_id", "研究id"]
-      研究目標名稱: ["asset_name", "研究目標名稱", "研究目標中文名稱", "Asset Name", "target_name", "index_name", "中文名稱", "名稱", "asset_cn"]
+    """
+    Read ID→name mapping (CSV/XLSX). Returns (series_name_map, asset_name_map, df_preview).
+    Recognized column names (case-insensitive):
+      Series ID: ["series_id", "變數id", "變數ID", "Series ID", "id", "series", "指標ID", "指標id"]
+      Series Name: ["series_name", "變數名稱", "變數中文名稱", "Series Name", "name", "中文名稱", "名稱", "series_cn", "series_name_zh"]
+      Asset ID: ["asset_id", "研究目標id", "研究目標ID", "資產ID", "asset", "target_id", "index_id", "研究id"]
+      Asset Name: ["asset_name", "研究目標名稱", "研究目標中文名稱", "Asset Name", "target_name", "index_name", "中文名稱", "名稱", "asset_cn"]
     """
     import io
     frames: list[pd.DataFrame] = []
@@ -148,7 +150,7 @@ def _parse_mapping(file_bytes: bytes, ext: str):
       變數名稱: ["series_name", "變數名稱", "變數中文名稱", "Series Name"]
       研究目標ID: ["asset_id", "研究目標id", "研究目標ID", "資產ID"]
       研究目標名稱: ["asset_name", "研究目標名稱", "研究目標中文名稱", "Asset Name"]
-    """
+
     import io
     if ext.lower() in (".csv",):
         df = pd.read_csv(io.BytesIO(file_bytes))
