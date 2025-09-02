@@ -13,20 +13,44 @@ import altair as alt
 alt.data_transformers.disable_max_rows()
 
 # ===== 內建 (GitHub) 對照表載入：不透過上傳 =====
-MAP_PATH = st.secrets.get("ID_NAME_MAP_PATH", os.getenv("ID_NAME_MAP_PATH", "https://github.com/dylanlu0604-dot/test2/blob/main/Idwithname.xlsx")) # 預設讀取 repo 內的檔案
+MAP_PATH = st.secrets.get("ID_NAME_MAP_PATH", os.getenv("ID_NAME_MAP_PATH", "https://github.com/dylanlu0604-dot/test2/blob/main/Idwithname.xlsx"))  # 預設讀取 repo 內的檔案
 
 @st.cache_data(show_spinner=False)
 def load_mapping_from_repo(path: str):
-    """從 repo 內建檔案載入 ID→中文名對照表，支援 CSV / Excel。
-    回傳 (series_name_map, asset_name_map, df_preview)。找不到/失敗則回傳空字典。"""
-    import io
+    """從 repo 內建檔案或 URL 載入 ID→中文名對照表，支援 CSV / Excel / GitHub 連結。
+    1) 檔案路徑：/app/data/id_name_map.xlsx
+    2) URL：含 http/https；若是 github.com 的 blob 連結會自動轉為 raw.githubusercontent.com
+    回傳 (series_name_map, asset_name_map, df_preview)。失敗則回傳空字典。"""
+    import io, re
     try:
-        with open(path, "rb") as f:
-            file_bytes = f.read()
-        ext = os.path.splitext(path)[1]
-        series_map, asset_map, df_preview = _parse_mapping(file_bytes, ext)
-        return series_map, asset_map, df_preview
+        if isinstance(path, str) and (path.startswith("http://") or path.startswith("https://")):
+            url = path
+            # 將 github 的 blob 連結自動轉成 raw
+            if "github.com" in url and "raw.githubusercontent.com" not in url:
+                try:
+                    # 例：https://github.com/owner/repo/blob/branch/dir/file.xlsx
+                    parts = url.split("github.com/")[-1].split("/")
+                    if len(parts) >= 5 and parts[2] == "blob":
+                        owner, repo, _, branch = parts[:4]
+                        rest = "/".join(parts[4:])
+                        url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{rest}"
+                except Exception:
+                    pass
+            r = requests.get(url, timeout=30)
+            r.raise_for_status()
+            file_bytes = r.content
+            # 從 URL 推斷副檔名；若無則當作 csv
+            ext = os.path.splitext(url.split("?")[0])[1] or ".csv"
+            series_map, asset_map, df_preview = _parse_mapping(file_bytes, ext)
+            return series_map, asset_map, df_preview
+        else:
+            with open(path, "rb") as f:
+                file_bytes = f.read()
+            ext = os.path.splitext(path)[1]
+            series_map, asset_map, df_preview = _parse_mapping(file_bytes, ext)
+            return series_map, asset_map, df_preview
     except Exception as e:
+        st.warning(f"對照表載入失敗：{e}")
         return {}, {}, pd.DataFrame()
 
 # 全域名稱對照：供整個 App 使用
@@ -49,8 +73,76 @@ sigma_levels = [0.5, 1.0, 1.5, 2.0]
 
 @st.cache_data(show_spinner=False)
 def _parse_mapping(file_bytes: bytes, ext: str):
-    """讀取使用者上傳的ID→中文名稱對照表（支援 CSV / XLSX）。
-    回傳 (series_name_map, asset_name_map, df_preview)
+    """讀取使用者提供的 ID→中文名稱對照表（支援 CSV / Excel，Excel 會掃描所有工作表）。
+    回傳 (series_name_map, asset_name_map, df_preview)。若僅讀到資料但未辨識欄位，series/asset 會是空字典、df_preview 仍提供前幾列以便除錯。
+    可辨識欄名（不分大小寫）：
+      變數ID: ["series_id", "變數id", "變數ID", "Series ID", "id", "series", "指標ID", "指標id"]
+      變數名稱: ["series_name", "變數名稱", "變數中文名稱", "Series Name", "name", "中文名稱", "名稱", "series_cn", "series_name_zh"]
+      研究目標ID: ["asset_id", "研究目標id", "研究目標ID", "資產ID", "asset", "target_id", "index_id", "研究id"]
+      研究目標名稱: ["asset_name", "研究目標名稱", "研究目標中文名稱", "Asset Name", "target_name", "index_name", "中文名稱", "名稱", "asset_cn"]
+    """
+    import io
+    frames: list[pd.DataFrame] = []
+    if ext.lower() == ".csv":
+        frames = [pd.read_csv(io.BytesIO(file_bytes))]
+    else:
+        xls = pd.ExcelFile(io.BytesIO(file_bytes))
+        frames = [xls.parse(s) for s in xls.sheet_names]
+
+    def pick(df: pd.DataFrame, options: list[str]) -> str | None:
+        # 精確命中
+        for o in options:
+            if o in df.columns:
+                return o
+        # 不分大小寫命中
+        low = {c.lower().strip(): c for c in df.columns}
+        for o in options:
+            if o.lower() in low:
+                return low[o.lower()]
+        return None
+
+    series_map: dict[int, str] = {}
+    asset_map: dict[int, str] = {}
+    preview: pd.DataFrame | None = None
+
+    s_id_opts   = ["series_id", "變數id", "變數ID", "Series ID", "id", "series", "指標ID", "指標id"]
+    s_name_opts = ["series_name", "變數名稱", "變數中文名稱", "Series Name", "name", "中文名稱", "名稱", "series_cn", "series_name_zh"]
+    a_id_opts   = ["asset_id", "研究目標id", "研究目標ID", "資產ID", "asset", "target_id", "index_id", "研究id"]
+    a_name_opts = ["asset_name", "研究目標名稱", "研究目標中文名稱", "Asset Name", "target_name", "index_name", "中文名稱", "名稱", "asset_cn"]
+
+    for df in frames:
+        if preview is None:
+            preview = df.head(10).copy()
+        sid   = pick(df, s_id_opts)
+        sname = pick(df, s_name_opts)
+        aid   = pick(df, a_id_opts)
+        aname = pick(df, a_name_opts)
+
+        # 寬鬆規則：若找到一組含 id 與 name/名稱 的欄，就推測對照；含 asset 字樣 → 當 asset 對照
+        if not (sid and sname) and not (aid and aname):
+            id_like   = [c for c in df.columns if "id" in str(c).lower()]
+            name_like = [c for c in df.columns if ("name" in str(c).lower()) or ("名稱" in str(c)) or ("中文名稱" in str(c))]
+            if id_like and name_like:
+                guess_id, guess_name = id_like[0], name_like[0]
+                if "asset" in str(guess_id).lower() or "研究目標" in str(guess_id) or "index" in str(guess_id).lower():
+                    aid, aname = guess_id, guess_name
+                else:
+                    sid, sname = guess_id, guess_name
+
+        if sid and sname:
+            try:
+                series_map.update({int(k): str(v) for k, v in zip(df[sid], df[sname]) if pd.notna(k) and pd.notna(v)})
+            except Exception:
+                pass
+        if aid and aname:
+            try:
+                asset_map.update({int(k): str(v) for k, v in zip(df[aid], df[aname]) if pd.notna(k) and pd.notna(v)})
+            except Exception:
+                pass
+
+    if preview is None:
+        preview = pd.DataFrame()
+    return series_map, asset_map, preview
     可辨識的欄名（不分大小寫）：
       變數ID: ["series_id", "變數id", "變數ID", "Series ID"]
       變數名稱: ["series_name", "變數名稱", "變數中文名稱", "Series Name"]
@@ -308,13 +400,23 @@ st.title("熊市訊號與牛市訊號尋找工具")
 with st.sidebar:
     st.header("資料來源與參數設定")
 
-    # 讀取 repo 內建對照表（不需上傳）
+    # 讀取 repo/URL 內建對照表（不需上傳）
 if series_name_map or asset_name_map:
     st.success(f"已載入對照表：變數 {len(series_name_map)} 筆、研究目標 {len(asset_name_map)} 筆。來源：{MAP_PATH}")
     with st.expander("對照表預覽（前10列）", expanded=False):
-        st.dataframe(df_preview if not df_preview.empty else pd.DataFrame({"提示": ["對照表內容為空"]}))
+        st.dataframe(df_preview)
 else:
-    st.info(f"找不到對照表檔案：{MAP_PATH}，將以數字ID顯示。可透過環境變數 ID_NAME_MAP_PATH 指定路徑。")
+    if 'df_preview' in globals() and isinstance(df_preview, pd.DataFrame) and not df_preview.empty:
+        st.warning("已成功讀到檔案，但未識別到對應欄位。請確認欄名符合：
+
+"
+                   "變數ID：[series_id/變數ID/id/series/...], 變數名稱：[series_name/變數名稱/name/...];
+"
+                   "研究目標ID：[asset_id/研究目標ID/asset/index_id/...], 研究目標名稱：[asset_name/研究目標名稱/name/...]")
+        with st.expander("檔案欄位預覽（前10列）"):
+            st.dataframe(df_preview)
+    else:
+        st.info(f"無法下載或讀取：{MAP_PATH}。將以數字ID顯示。可用環境變數或 st.secrets 的 ID_NAME_MAP_PATH 指定路徑（支援 GitHub blob/raw）。")
 # 觸發邏輯選擇：Greater / Smaller
     trigger_mode = st.radio("觸發邏輯", ["Greater", "Smaller"], horizontal=True)
 
