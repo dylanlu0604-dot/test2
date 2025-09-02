@@ -9,6 +9,7 @@ from datetime import datetime
 from joblib import Parallel, delayed
 import multiprocessing
 import plotly.graph_objects as go
+import io
 
 # --- Optional parallelism ---
 try:
@@ -23,13 +24,41 @@ st.set_page_config(page_title="熊市訊號與牛市訊號尋找工具", layout=
 # -------------------------- UI --------------------------
 st.title("熊市訊號與牛市訊號尋找工具")
 
+# --- Function to load ID to Name mapping from GitHub ---
+@st.cache_data(show_spinner="下載ID對應表...", ttl=3600)
+def load_series_id_map() -> pd.DataFrame:
+    """從 GitHub 下載 ID 與名稱對應的 Excel 檔案。"""
+    github_url = "https://raw.githubusercontent.com/dylanlu0604-dot/test2/main/Idwithname.xlsx"
+    try:
+        response = requests.get(github_url)
+        response.raise_for_status() # 檢查是否有 HTTP 錯誤
+        df = pd.read_excel(io.BytesIO(response.content))
+        return df
+    except requests.exceptions.RequestException as e:
+        st.error(f"無法從 GitHub 下載對應表: {e}")
+        st.stop()
+    except Exception as e:
+        st.error(f"處理 Excel 檔案時發生錯誤: {e}")
+        st.stop()
+
+# 載入 ID 對應表
+id_name_map = load_series_id_map()
+# 處理 NaN 或空值
+id_name_map = id_name_map.dropna(subset=['ID', '名稱']).astype({'ID': int, '名稱': str})
+series_names = id_name_map['名稱'].tolist()
+
+
 with st.sidebar:
     st.header("資料來源與參數設定")
     
     # 觸發邏輯選擇：Greater / Smaller
     trigger_mode = st.radio("觸發邏輯", ["Greater", "Smaller"], horizontal=True)
 
-    series_ids_text = st.text_input("變數ID", "10000")
+    # 將文字輸入框替換為下拉式選單，顯示中文名稱
+    selected_name = st.selectbox("變數ID", options=series_names, index=0)
+    # 根據選定的中文名稱找出對應的 ID
+    selected_id = id_name_map[id_name_map['名稱'] == selected_name]['ID'].iloc[0]
+
     assetid = st.number_input("研究目標ID", min_value=0, value=0, step=1)
     api_key = st.text_input(
         "MacroMicro API Key（留空則使用 st.secrets 或環境變數）",
@@ -45,10 +74,6 @@ with st.sidebar:
     winrolling_value = st.selectbox("滾動期數", options=roll_choices, index=1)
 
     months_gap_threshold = st.number_input("事件間隔（至少幾個月）", min_value=1, max_value=36, value=6)
-
-
-
-
 
 # ---------------------- Helpers ------------------------
 OFFSETS = [-12, -6, 0, 6, 12]  # 以「月」為單位
@@ -148,7 +173,7 @@ def process_series(series_id: int, std_value: float, winrolling_value: int, k: s
                 origin = df_concat[data_cols]
                 finalb1 = origin.apply(lambda col: 100 * col / col.iloc[timepast])
                 finalb1 = finalb1[finalb1.columns[-10:]]  # 只保留最近 10 次事件
-                finalb1["median"] = finalb1.mean(axis=1)
+                finalb1["mean"] = finalb1.mean(axis=1)
 
                 offsets = [-12, -6, 0, 6, 12]
                 table1 = pd.concat([finalb1.iloc[timepast + off] for off in offsets], axis=1)
@@ -158,12 +183,12 @@ def process_series(series_id: int, std_value: float, winrolling_value: int, k: s
                 resulttable1 = pd.concat([resulttable1, perc_df, table1.iloc[-1:]])
 
                 times1 = len(resulttable1) - 2
-                pre1 = resulttable1.loc["median", "-12d"] - 100
+                pre1 = resulttable1.loc["mean", "-12d"] - 100
                 prewin1 = resulttable1.loc["勝率", "-12d"]
-                after1 = resulttable1.loc["median", "12d"] - 100
+                after1 = resulttable1.loc["mean", "12d"] - 100
                 afterwin1 = resulttable1.loc["勝率", "12d"]
                 score1 = after1 - pre1
-                effective1 = "yes" if (pre1 - 1) * (after1 - 1) > 0 and times1 > 10 else "no"
+                effective1 = "yes" if (pre1 > 0 and after1 > 0) or (pre1 < 0 and after1 < 0) and times1 > 10 else "no"
 
         # ===== 第二段分析：breath / breath.shift(12) =====
         df = alldf[[x1, x2]].copy()
@@ -201,7 +226,7 @@ def process_series(series_id: int, std_value: float, winrolling_value: int, k: s
                 data_cols = [col for j, col in enumerate(df_concat.columns) if j % 2 == 1]
                 origin = df_concat[data_cols]
                 finalb2 = origin.apply(lambda col: 100 * col / col.iloc[timepast])
-                finalb2["median"] = finalb2.mean(axis=1)
+                finalb2["mean"] = finalb2.mean(axis=1)
 
                 offsets = [-12, -6, 0, 6, 12]
                 table2 = pd.concat([finalb2.iloc[timepast + off] for off in offsets], axis=1)
@@ -211,12 +236,12 @@ def process_series(series_id: int, std_value: float, winrolling_value: int, k: s
                 resulttable2 = pd.concat([resulttable2, perc_df, table2.iloc[-1:]])
 
                 times2 = len(resulttable2) - 2
-                pre2 = resulttable2.loc["median", "-12d"] - 100
+                pre2 = resulttable2.loc["mean", "-12d"] - 100
                 prewin2 = resulttable2.loc["勝率", "-12d"]
-                after2 = resulttable2.loc["median", "12d"] - 100
+                after2 = resulttable2.loc["mean", "12d"] - 100
                 afterwin2 = resulttable2.loc["勝率", "12d"]
                 score2 = after2 - pre2
-                effective2 = "yes" if (pre2 - 1) * (after2 - 1) > 0 and times2 > 10 else "no"
+                effective2 = "yes" if (pre2 > 0 and after2 > 0) or (pre2 < 0 and after2 < 0) and times2 > 10 else "no"
 
         results.append({
             "series_id": series_id, "std": std_value, "winrolling": winrolling_value,
@@ -237,12 +262,7 @@ def process_series(series_id: int, std_value: float, winrolling_value: int, k: s
 
 # ---------------------- Main Flow ----------------------
 
-try:
-    series_ids = [int(s.strip()) for s in series_ids_text.split(",") if s.strip()]
-except Exception:
-    st.error("Series IDs 格式錯誤。請以逗號分隔整數 ID。")
-    st.stop()
-
+series_ids = [selected_id] # 取得下拉式選單的 ID
 std_value = std_value
 winrolling_value = winrolling_value
 mode = trigger_mode
@@ -266,60 +286,43 @@ if not results_flat:
     st.stop()
 
 
-
-
-
-
 # ===== 第一段分析：原始 breath =====
 st.subheader("原始值版本")
 
-
 resulttable1_list = [r['resulttable1'] for r in results_flat if r.get('resulttable1') is not None]
 
+df = resulttable1_list[0]
+WIN_RATE_LABEL = "勝率"
 
+pre     = float(df.loc['mean', '-12d']) - 100
+after   = float(df.loc['mean', '12d'])  - 100
+prewin  = float(df.loc[WIN_RATE_LABEL, '-12d'])
+afterwin = float(df.loc[WIN_RATE_LABEL, '12d'])
 
-
-df = resulttable1_list[0]  # 或換成 resulttable1_list[0] 做 part1
-
-WIN_RATE_LABEL = "勝率"  # 你前面已改成英文標籤就用這個
-
-# df 為某個 resulttable（例如 resulttable2_list[0]）
-pre    = float(df.loc['median', '-12d']) - 100
-after  = float(df.loc['median', '12d'])  - 100
-prewin = float(df.loc[WIN_RATE_LABEL, '-12d'])     # 勝率是百分比，別再減 100
-afterwin = float(df.loc[WIN_RATE_LABEL, '12d'])    # 也不要減 10
-
-times = len(df) - 2  # 扣掉 Win rate + median 兩列
+times = len(df) - 2
 
 effectivepart1 = (
     '為有效訊號'
-    if ((pre - 1) * (after - 1) > 0) and (times > 10) and ((prewin + afterwin > 140) or (prewin + afterwin < 60))
+    if ((pre > 0 and after > 0) or (pre < 0 and after < 0)) and (times > 10) and ((prewin + afterwin > 140) or (prewin + afterwin < 60))
     else '不是有效訊號'
 )
 
 
-
 st.subheader(effectivepart1)
-
 
 # 並排：左表右圖
 col1, col2 = st.columns([1, 1])
 
 with col1:
     if resulttable1_list:
-        st.dataframe(resulttable1_list[0])  # 左邊顯示表格
-
-
-
-
+        st.dataframe(resulttable1_list[0])
 
 with col2:
     if results_flat and results_flat[0].get('finalb1') is not None:
-        # 右邊畫圖
         x = np.linspace(-31, 31, 31 + 31)
-        y = results_flat[0]['finalb1']['median']
+        y = results_flat[0]['finalb1']['mean']
         fig, ax = plt.subplots(figsize=(6, 5))
-        ax.plot(x, y, label='Final b2', color='darkblue')
+        ax.plot(x, y, label='Final b1', color='darkblue')
         ax.axvline(0, color='grey', linestyle='--')
         xlim = (-15, 15)
         ax.set_xlim(xlim)
@@ -337,28 +340,21 @@ st.divider()
 st.subheader("年增率版本")
 resulttable2_list = [r['resulttable2'] for r in results_flat if r.get('resulttable2') is not None]
 
+df = resulttable2_list[0]
+WIN_RATE_LABEL = "勝率"
 
+pre     = float(df.loc['mean', '-12d']) - 100
+after   = float(df.loc['mean', '12d'])  - 100
+prewin  = float(df.loc[WIN_RATE_LABEL, '-12d'])
+afterwin = float(df.loc[WIN_RATE_LABEL, '12d'])
 
-df = resulttable2_list[0]  # 或換成 resulttable1_list[0] 做 part1
-
-
-WIN_RATE_LABEL = "勝率"  # 你前面已改成英文標籤就用這個
-
-# df 為某個 resulttable（例如 resulttable2_list[0]）
-pre    = float(df.loc['median', '-12d']) - 100
-after  = float(df.loc['median', '12d'])  - 100
-prewin = float(df.loc[WIN_RATE_LABEL, '-12d'])     # 勝率是百分比，別再減 100
-afterwin = float(df.loc[WIN_RATE_LABEL, '12d'])    # 也不要減 10
-
-times = len(df) - 2  # 扣掉 Win rate + median 兩列
+times = len(df) - 2
 
 effectivepart2 = (
     '為有效訊號'
-    if ((pre - 1) * (after - 1) > 0) and (times > 10) and ((prewin + afterwin > 140) or (prewin + afterwin < 60))
+    if ((pre > 0 and after > 0) or (pre < 0 and after < 0)) and (times > 10) and ((prewin + afterwin > 140) or (prewin + afterwin < 60))
     else '不是有效訊號'
 )
-
-
 
 
 st.subheader(effectivepart2)
@@ -369,13 +365,12 @@ col1, col2 = st.columns([1, 1])
 
 with col1:
     if resulttable2_list:
-        st.dataframe(resulttable2_list[0])  # 左邊顯示表格
+        st.dataframe(resulttable2_list[0])
 
 with col2:
     if results_flat and results_flat[0].get('finalb2') is not None:
-        # 右邊畫圖
         x = np.linspace(-31, 31, 31 + 31)
-        y = results_flat[0]['finalb2']['median']
+        y = results_flat[0]['finalb2']['mean']
         fig, ax = plt.subplots(figsize=(6, 5))
         ax.plot(x, y, label='Final b2', color='darkblue')
         ax.axvline(0, color='grey', linestyle='--')
@@ -398,7 +393,7 @@ alt.data_transformers.disable_max_rows()
 
 sigma_levels = [0.5, 1.0, 1.5, 2.0]
 
-def levels_chart_with_brush(s: pd.Series, sid: int):
+def levels_chart_with_brush(s: pd.Series, sid: int, name: str):
     roll_mean = s.rolling(winrolling_value).mean()
     roll_std  = s.rolling(winrolling_value).std()
 
@@ -427,8 +422,8 @@ def levels_chart_with_brush(s: pd.Series, sid: int):
             color=alt.Color("Series:N", legend=alt.Legend(orient="top")),
             tooltip=[alt.Tooltip("Date:T"), "Series:N", alt.Tooltip("Value:Q", format=".2f")],
         )
-        .transform_filter(brush)  # filter data by brushed x-range -> y auto-rescales
-        .properties(title=f"{sid} | {winrolling_value}-period rolling mean ±σ", height=320)
+        .transform_filter(brush)
+        .properties(title=f"{name} ({sid}) | {winrolling_value}-period rolling mean ±σ", height=320)
     )
 
     lower = (
@@ -441,7 +436,7 @@ def levels_chart_with_brush(s: pd.Series, sid: int):
 
     return alt.vconcat(upper, lower).resolve_scale(y="independent")
 
-def yoy_chart_with_brush(s: pd.Series, sid: int):
+def yoy_chart_with_brush(s: pd.Series, sid: int, name: str):
     yoy = s.pct_change(12) * 100.0
     yoy_mean = yoy.rolling(winrolling_value).mean()
     yoy_std  = yoy.rolling(winrolling_value).std()
@@ -468,8 +463,8 @@ def yoy_chart_with_brush(s: pd.Series, sid: int):
             color=alt.Color("Series:N", legend=alt.Legend(orient="top")),
             tooltip=[alt.Tooltip("Date:T"), "Series:N", alt.Tooltip("Value:Q", format=".2f")],
         )
-        .transform_filter(brush)  # y auto-rescales to brushed x-range
-        .properties(title=f"{sid} | YoY (%) with {winrolling_value}-period rolling mean ±σ", height=320)
+        .transform_filter(brush)
+        .properties(title=f"{name} ({sid}) | YoY (%) with {winrolling_value}-period rolling mean ±σ", height=320)
     )
 
     zero_line = alt.Chart(pd.DataFrame({"y": [0]})).mark_rule(strokeDash=[4,4]).encode(y="y:Q")
@@ -484,18 +479,19 @@ def yoy_chart_with_brush(s: pd.Series, sid: int):
 
     return alt.vconcat(upper + zero_line, lower).resolve_scale(y="independent")
 
-for sid in series_ids:
-    df_target = mm(int(sid), "MS", f"series_{sid}", k)
-    if df_target is None or df_target.empty:
-        st.info(f"No data for series {sid}, skipping.")
-        continue
+# 獲取選定的系列名稱
+selected_name = st.session_state.get('selected_name', series_names[0])
+# 根據名稱找到 ID
+sid = id_name_map[id_name_map['名稱'] == selected_name]['ID'].iloc[0]
 
+df_target = mm(int(sid), "MS", f"series_{sid}", k)
+if df_target is None or df_target.empty:
+    st.info(f"No data for series {sid}, skipping.")
+else:
     s = df_target.iloc[:, 0].astype(float)
-
-    with st.expander(f"Series {sid}", expanded=False):
+    with st.expander(f"Series: {selected_name} ({sid})", expanded=True):
         colA, colB = st.columns(2)
         with colA:
-            st.altair_chart(levels_chart_with_brush(s, sid), use_container_width=True)
+            st.altair_chart(levels_chart_with_brush(s, sid, selected_name), use_container_width=True)
         with colB:
-            st.altair_chart(yoy_chart_with_brush(s, sid), use_container_width=True)
-
+            st.altair_chart(yoy_chart_with_brush(s, sid, selected_name), use_container_width=True)
