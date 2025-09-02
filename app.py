@@ -33,6 +33,13 @@ def load_series_id_map() -> pd.DataFrame:
         response = requests.get(github_url)
         response.raise_for_status() # 檢查是否有 HTTP 錯誤
         df = pd.read_excel(io.BytesIO(response.content))
+        
+        # Check for expected columns and handle potential errors
+        required_cols = ['ID', '名稱']
+        if not all(col in df.columns for col in required_cols):
+            st.error(f"Excel 檔案中缺少必要的欄位。預期欄位：{required_cols}。實際欄位：{df.columns.tolist()}")
+            st.stop()
+        
         return df
     except requests.exceptions.RequestException as e:
         st.error(f"無法從 GitHub 下載對應表: {e}")
@@ -183,10 +190,10 @@ def process_series(series_id: int, std_value: float, winrolling_value: int, k: s
                 resulttable1 = pd.concat([resulttable1, perc_df, table1.iloc[-1:]])
 
                 times1 = len(resulttable1) - 2
-                pre1 = resulttable1.loc["mean", "-12d"] - 100
-                prewin1 = resulttable1.loc["勝率", "-12d"]
-                after1 = resulttable1.loc["mean", "12d"] - 100
-                afterwin1 = resulttable1.loc["勝率", "12d"]
+                pre1 = resulttable1.loc["mean", "-12d"] - 100 if "mean" in resulttable1.index else 0
+                prewin1 = resulttable1.loc["勝率", "-12d"] if "勝率" in resulttable1.index else 0
+                after1 = resulttable1.loc["mean", "12d"] - 100 if "mean" in resulttable1.index else 0
+                afterwin1 = resulttable1.loc["勝率", "12d"] if "勝率" in resulttable1.index else 0
                 score1 = after1 - pre1
                 effective1 = "yes" if (pre1 > 0 and after1 > 0) or (pre1 < 0 and after1 < 0) and times1 > 10 else "no"
 
@@ -236,10 +243,10 @@ def process_series(series_id: int, std_value: float, winrolling_value: int, k: s
                 resulttable2 = pd.concat([resulttable2, perc_df, table2.iloc[-1:]])
 
                 times2 = len(resulttable2) - 2
-                pre2 = resulttable2.loc["mean", "-12d"] - 100
-                prewin2 = resulttable2.loc["勝率", "-12d"]
-                after2 = resulttable2.loc["mean", "12d"] - 100
-                afterwin2 = resulttable2.loc["勝率", "12d"]
+                pre2 = resulttable2.loc["mean", "-12d"] - 100 if "mean" in resulttable2.index else 0
+                prewin2 = resulttable2.loc["勝率", "-12d"] if "勝率" in resulttable2.index else 0
+                after2 = resulttable2.loc["mean", "12d"] - 100 if "mean" in resulttable2.index else 0
+                afterwin2 = resulttable2.loc["勝率", "12d"] if "勝率" in resulttable2.index else 0
                 score2 = after2 - pre2
                 effective2 = "yes" if (pre2 > 0 and after2 > 0) or (pre2 < 0 and after2 < 0) and times2 > 10 else "no"
 
@@ -251,8 +258,8 @@ def process_series(series_id: int, std_value: float, winrolling_value: int, k: s
             "times2": times2, "effective2": effective2,
             "resulttable1": resulttable1 if resulttable1 is not None else None,
             "resulttable2": resulttable2 if resulttable2 is not None else None,
-            "finalb1": finalb1.reset_index() if finalb1 is not None else None,
-            "finalb2": finalb2.reset_index() if finalb2 is not None else None,
+            "finalb1": finalb1.reset_index() if finalb1 is not None and "mean" in finalb1.columns else None,
+            "finalb2": finalb2.reset_index() if finalb2 is not None and "mean" in finalb2.columns else None,
         })
 
     except Exception as e:
@@ -291,97 +298,99 @@ st.subheader("原始值版本")
 
 resulttable1_list = [r['resulttable1'] for r in results_flat if r.get('resulttable1') is not None]
 
-df = resulttable1_list[0]
-WIN_RATE_LABEL = "勝率"
+if resulttable1_list:
+    df = resulttable1_list[0]
+    WIN_RATE_LABEL = "勝率"
 
-pre     = float(df.loc['mean', '-12d']) - 100
-after   = float(df.loc['mean', '12d'])  - 100
-prewin  = float(df.loc[WIN_RATE_LABEL, '-12d'])
-afterwin = float(df.loc[WIN_RATE_LABEL, '12d'])
+    pre = float(df.loc['mean', '-12d']) - 100 if 'mean' in df.index and '-12d' in df.columns else 0
+    after = float(df.loc['mean', '12d']) - 100 if 'mean' in df.index and '12d' in df.columns else 0
+    prewin = float(df.loc[WIN_RATE_LABEL, '-12d']) if WIN_RATE_LABEL in df.index and '-12d' in df.columns else 0
+    afterwin = float(df.loc[WIN_RATE_LABEL, '12d']) if WIN_RATE_LABEL in df.index and '12d' in df.columns else 0
 
-times = len(df) - 2
+    times = len(df) - 2
+    
+    effectivepart1 = (
+        '為有效訊號'
+        if ((pre > 0 and after > 0) or (pre < 0 and after < 0)) and (times > 10) and ((prewin + afterwin > 140) or (prewin + afterwin < 60))
+        else '不是有效訊號'
+    )
+    st.subheader(effectivepart1)
 
-effectivepart1 = (
-    '為有效訊號'
-    if ((pre > 0 and after > 0) or (pre < 0 and after < 0)) and (times > 10) and ((prewin + afterwin > 140) or (prewin + afterwin < 60))
-    else '不是有效訊號'
-)
+    # 並排：左表右圖
+    col1, col2 = st.columns([1, 1])
 
-
-st.subheader(effectivepart1)
-
-# 並排：左表右圖
-col1, col2 = st.columns([1, 1])
-
-with col1:
-    if resulttable1_list:
+    with col1:
         st.dataframe(resulttable1_list[0])
 
-with col2:
-    if results_flat and results_flat[0].get('finalb1') is not None:
-        x = np.linspace(-31, 31, 31 + 31)
-        y = results_flat[0]['finalb1']['mean']
-        fig, ax = plt.subplots(figsize=(6, 5))
-        ax.plot(x, y, label='Final b1', color='darkblue')
-        ax.axvline(0, color='grey', linestyle='--')
-        xlim = (-15, 15)
-        ax.set_xlim(xlim)
-        ax.set_ylim(
-            bottom=y[(x >= xlim[0]) & (x <= xlim[1])].min() * 0.99,
-            top=y[(x >= xlim[0]) & (x <= xlim[1])].max() * 1.01)
-        ax.set_xlabel('Months')
-        ax.set_ylabel('Index')
-        st.pyplot(fig, use_container_width=True)
-
-st.divider()
+    with col2:
+        if results_flat and results_flat[0].get('finalb1') is not None:
+            finalb1_df = results_flat[0]['finalb1']
+            if 'mean' in finalb1_df.columns:
+                x = np.linspace(-31, 31, 31 + 31)
+                y = finalb1_df['mean']
+                fig, ax = plt.subplots(figsize=(6, 5))
+                ax.plot(x, y, label='Final b1', color='darkblue')
+                ax.axvline(0, color='grey', linestyle='--')
+                xlim = (-15, 15)
+                ax.set_xlim(xlim)
+                ax.set_ylim(
+                    bottom=y[(x >= xlim[0]) & (x <= xlim[1])].min() * 0.99,
+                    top=y[(x >= xlim[0]) & (x <= xlim[1])].max() * 1.01)
+                ax.set_xlabel('Months')
+                ax.set_ylabel('Index')
+                st.pyplot(fig, use_container_width=True)
+else:
+    st.info("第一段分析沒有可顯示的結果。")
+    st.divider()
 
 
 # ===== 第二段分析：breath / breath.shift(12) =====
 st.subheader("年增率版本")
 resulttable2_list = [r['resulttable2'] for r in results_flat if r.get('resulttable2') is not None]
 
-df = resulttable2_list[0]
-WIN_RATE_LABEL = "勝率"
+if resulttable2_list:
+    df = resulttable2_list[0]
+    WIN_RATE_LABEL = "勝率"
 
-pre     = float(df.loc['mean', '-12d']) - 100
-after   = float(df.loc['mean', '12d'])  - 100
-prewin  = float(df.loc[WIN_RATE_LABEL, '-12d'])
-afterwin = float(df.loc[WIN_RATE_LABEL, '12d'])
+    pre = float(df.loc['mean', '-12d']) - 100 if 'mean' in df.index and '-12d' in df.columns else 0
+    after = float(df.loc['mean', '12d']) - 100 if 'mean' in df.index and '12d' in df.columns else 0
+    prewin = float(df.loc[WIN_RATE_LABEL, '-12d']) if WIN_RATE_LABEL in df.index and '-12d' in df.columns else 0
+    afterwin = float(df.loc[WIN_RATE_LABEL, '12d']) if WIN_RATE_LABEL in df.index and '12d' in df.columns else 0
 
-times = len(df) - 2
+    times = len(df) - 2
 
-effectivepart2 = (
-    '為有效訊號'
-    if ((pre > 0 and after > 0) or (pre < 0 and after < 0)) and (times > 10) and ((prewin + afterwin > 140) or (prewin + afterwin < 60))
-    else '不是有效訊號'
-)
+    effectivepart2 = (
+        '為有效訊號'
+        if ((pre > 0 and after > 0) or (pre < 0 and after < 0)) and (times > 10) and ((prewin + afterwin > 140) or (prewin + afterwin < 60))
+        else '不是有效訊號'
+    )
+    st.subheader(effectivepart2)
 
+    # 並排：左表右圖
+    col1, col2 = st.columns([1, 1])
 
-st.subheader(effectivepart2)
-
-
-# 並排：左表右圖
-col1, col2 = st.columns([1, 1])
-
-with col1:
-    if resulttable2_list:
+    with col1:
         st.dataframe(resulttable2_list[0])
 
-with col2:
-    if results_flat and results_flat[0].get('finalb2') is not None:
-        x = np.linspace(-31, 31, 31 + 31)
-        y = results_flat[0]['finalb2']['mean']
-        fig, ax = plt.subplots(figsize=(6, 5))
-        ax.plot(x, y, label='Final b2', color='darkblue')
-        ax.axvline(0, color='grey', linestyle='--')
-        xlim = (-15, 15)
-        ax.set_xlim(xlim)
-        ax.set_ylim(
-            bottom=y[(x >= xlim[0]) & (x <= xlim[1])].min() * 0.99,
-            top=y[(x >= xlim[0]) & (x <= xlim[1])].max() * 1.01)
-        ax.set_xlabel('Months')
-        ax.set_ylabel('Index')
-        st.pyplot(fig, use_container_width=True)
+    with col2:
+        if results_flat and results_flat[0].get('finalb2') is not None:
+            finalb2_df = results_flat[0]['finalb2']
+            if 'mean' in finalb2_df.columns:
+                x = np.linspace(-31, 31, 31 + 31)
+                y = finalb2_df['mean']
+                fig, ax = plt.subplots(figsize=(6, 5))
+                ax.plot(x, y, label='Final b2', color='darkblue')
+                ax.axvline(0, color='grey', linestyle='--')
+                xlim = (-15, 15)
+                ax.set_xlim(xlim)
+                ax.set_ylim(
+                    bottom=y[(x >= xlim[0]) & (x <= xlim[1])].min() * 0.99,
+                    top=y[(x >= xlim[0]) & (x <= xlim[1])].max() * 1.01)
+                ax.set_xlabel('Months')
+                ax.set_ylabel('Index')
+                st.pyplot(fig, use_container_width=True)
+else:
+    st.info("第二段分析沒有可顯示的結果。")
 
 
 # ===== Plot by series_ids_text: Levels & YoY (brush to set x-range; y auto-rescales) =====
@@ -480,7 +489,10 @@ def yoy_chart_with_brush(s: pd.Series, sid: int, name: str):
     return alt.vconcat(upper + zero_line, lower).resolve_scale(y="independent")
 
 # 獲取選定的系列名稱
-selected_name = st.session_state.get('selected_name', series_names[0])
+if 'selected_name' not in st.session_state:
+    st.session_state.selected_name = series_names[0]
+
+selected_name = st.session_state.selected_name
 # 根據名稱找到 ID
 sid = id_name_map[id_name_map['名稱'] == selected_name]['ID'].iloc[0]
 
