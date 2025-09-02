@@ -14,7 +14,7 @@ import altair as alt
 alt.data_transformers.disable_max_rows()
 
 # ===== 內建 (GitHub) 對照表載入：不透過上傳 =====
-MAP_PATH = st.secrets.get("ID_NAME_MAP_PATH", os.getenv("ID_NAME_MAP_PATH", "https://github.com/dylanlu0604-dot/test2/blob/main/Idwithname.xlsx"))  # 預設讀取 repo 內的檔案
+MAP_PATH = st.secrets.get("ID_NAME_MAP_PATH", os.getenv("ID_NAME_MAP_PATH", "https://github.com/dylanlu0604-dot/test2/blob/main/Idwithname.xlsx"))
 
 @st.cache_data(show_spinner=False)
 def load_mapping_from_repo(path: str):
@@ -70,7 +70,7 @@ except Exception:
 st.set_page_config(page_title="熊市訊號與牛市訊號尋找工具", layout="wide")
 
 # -------------------------- Helpers --------------------------
-OFFSETS = [-12, -6, 0, 6, 12]  # 以「月」為單位
+OFFSETS = [-12, -6, 0, 6, 12]
 sigma_levels = [0.5, 1.0, 1.5, 2.0]
 
 @st.cache_data(show_spinner=False)
@@ -107,22 +107,22 @@ def _parse_mapping(file_bytes: bytes, ext: str):
     asset_map: dict[int, str] = {}
     preview: pd.DataFrame | None = None
 
-    s_id_opts   = ["series_id", "變數id", "變數ID", "Series ID", "id", "series", "指標ID", "指標id"]
+    s_id_opts    = ["series_id", "變數id", "變數ID", "Series ID", "id", "series", "指標ID", "指標id"]
     s_name_opts = ["series_name", "變數名稱", "變數中文名稱", "Series Name", "name", "中文名稱", "名稱", "series_cn", "series_name_zh"]
-    a_id_opts   = ["asset_id", "研究目標id", "研究目標ID", "資產ID", "asset", "target_id", "index_id", "研究id"]
+    a_id_opts    = ["asset_id", "研究目標id", "研究目標ID", "資產ID", "asset", "target_id", "index_id", "研究id"]
     a_name_opts = ["asset_name", "研究目標名稱", "研究目標中文名稱", "Asset Name", "target_name", "index_name", "中文名稱", "名稱", "asset_cn"]
 
     for df in frames:
         if preview is None:
             preview = df.head(10).copy()
-        sid   = pick(df, s_id_opts)
+        sid     = pick(df, s_id_opts)
         sname = pick(df, s_name_opts)
-        aid   = pick(df, a_id_opts)
+        aid     = pick(df, a_id_opts)
         aname = pick(df, a_name_opts)
 
         # 寬鬆規則：若找到一組含 id 與 name/名稱 的欄，就推測對照；含 asset 字樣 → 當 asset 對照
         if not (sid and sname) and not (aid and aname):
-            id_like   = [c for c in df.columns if "id" in str(c).lower()]
+            id_like     = [c for c in df.columns if "id" in str(c).lower()]
             name_like = [c for c in df.columns if ("name" in str(c).lower()) or ("名稱" in str(c)) or ("中文名稱" in str(c))]
             if id_like and name_like:
                 guess_id, guess_name = id_like[0], name_like[0]
@@ -145,54 +145,8 @@ def _parse_mapping(file_bytes: bytes, ext: str):
     if preview is None:
         preview = pd.DataFrame()
     return series_map, asset_map, preview
-    可辨識的欄名（不分大小寫）：
-      變數ID: ["series_id", "變數id", "變數ID", "Series ID"]
-      變數名稱: ["series_name", "變數名稱", "變數中文名稱", "Series Name"]
-      研究目標ID: ["asset_id", "研究目標id", "研究目標ID", "資產ID"]
-      研究目標名稱: ["asset_name", "研究目標名稱", "研究目標中文名稱", "Asset Name"]
-
-    import io
-    if ext.lower() in (".csv",):
-        df = pd.read_csv(io.BytesIO(file_bytes))
-    else:
-        df = pd.read_excel(io.BytesIO(file_bytes))
-
-    def match_col(options: list[str]) -> str | None:
-        # 先精確比對
-        for opt in options:
-            if opt in df.columns:
-                return opt
-        # 再用不分大小寫比對
-        low = {c.lower(): c for c in df.columns}
-        for opt in options:
-            if opt.lower() in low:
-                return low[opt.lower()]
-        return None
-
-    s_id_col   = match_col(["series_id", "變數id", "變數ID", "Series ID"]) 
-    s_name_col = match_col(["series_name", "變數名稱", "變數中文名稱", "Series Name"]) 
-    a_id_col   = match_col(["asset_id", "研究目標id", "研究目標ID", "資產ID"]) 
-    a_name_col = match_col(["asset_name", "研究目標名稱", "研究目標中文名稱", "Asset Name"]) 
-
-    series_map: dict[int, str] = {}
-    asset_map: dict[int, str] = {}
-
-    if s_id_col and s_name_col:
-        try:
-            series_map = {int(k): str(v) for k, v in zip(df[s_id_col], df[s_name_col]) if pd.notna(k) and pd.notna(v)}
-        except Exception:
-            pass
-    if a_id_col and a_name_col:
-        try:
-            asset_map = {int(k): str(v) for k, v in zip(df[a_id_col], df[a_name_col]) if pd.notna(k) and pd.notna(v)}
-        except Exception:
-            pass
-
-    # 預覽欄位（不改原始 df）
-    preview_cols = [c for c in [s_id_col, s_name_col, a_id_col, a_name_col] if c]
-    df_preview = df[preview_cols].head(10) if preview_cols else df.head(5)
-    return series_map, asset_map, df_preview
-
+    # The following code block is duplicated and commented out.
+    # To fix this, I will remove it.
 
 def _need_api_key() -> str:
     k = (
@@ -267,7 +221,7 @@ def process_series(series_id: int, std_value: float, winrolling_value: int, k: s
         alldf_original = pd.concat([df1, df2], axis=1).resample("MS").asfreq().ffill()
 
         alldf = alldf_original.copy()
-        timeforward, timepast = 31, 31  # 定義 timepast 和 timeforward
+        timeforward, timepast = 31, 31
         months_threshold = st.session_state.get("months_gap_threshold", 6)
 
         # ===== 第一段分析：原始 breath =====
@@ -304,12 +258,12 @@ def process_series(series_id: int, std_value: float, winrolling_value: int, k: s
                 data_cols = [col for j, col in enumerate(df_concat.columns) if j % 2 == 1]
                 origin = df_concat[data_cols]
                 finalb1 = origin.apply(lambda col: 100 * col / col.iloc[timepast])
-                finalb1 = finalb1[finalb1.columns[-10:]]  # 只保留最近 10 次事件
+                finalb1 = finalb1[finalb1.columns[-10:]]
                 finalb1["median"] = finalb1.mean(axis=1)
 
                 offsets = [-12, -6, 0, 6, 12]
                 table1 = pd.concat([finalb1.iloc[timepast + off] for off in offsets], axis=1)
-                table1.columns = [f"{off}d" for off in offsets]  # 沿用 d 命名
+                table1.columns = [f"{off}d" for off in offsets]
                 resulttable1 = table1.iloc[:-1]
                 perc_df = pd.DataFrame([(resulttable1 > 100).mean() * 100], index=["勝率"])
                 resulttable1 = pd.concat([resulttable1, perc_df, table1.iloc[-1:]])
@@ -409,12 +363,12 @@ if series_name_map or asset_name_map:
         st.dataframe(df_preview)
 else:
     if 'df_preview' in globals() and isinstance(df_preview, pd.DataFrame) and not df_preview.empty:
-        st.warning("已成功讀到檔案，但未識別到對應欄位。請確認欄名符合：
-
-"
-                   "變數ID：[series_id/變數ID/id/series/...], 變數名稱：[series_name/變數名稱/name/...];
-"
-                   "研究目標ID：[asset_id/研究目標ID/asset/index_id/...], 研究目標名稱：[asset_name/研究目標名稱/name/...]")
+        st.warning(
+            """已成功讀到檔案，但未識別到對應欄位。請確認欄名符合：
+變數ID：[series_id/變數ID/id/series/...], 變數名稱：[series_name/變數名稱/name/...];
+研究目標ID：[asset_id/研究目標ID/asset/index_id/...], 研究目標名稱：[asset_name/研究目標名稱/name/...]
+"""
+        )
         with st.expander("檔案欄位預覽（前10列）"):
             st.dataframe(df_preview)
     else:
